@@ -1,6 +1,6 @@
 <?php
 // Google OAuth 2.0 Configuration
-define('GOOGLE_CLIENT_ID',     'CLIENT_ID');
+define('GOOGLE_CLIENT_ID',     'CLIENT_ID' );
 define('GOOGLE_CLIENT_SECRET', 'CLIENT_SECRET');
 define('GOOGLE_REDIRECT_URI',  'https://kusinayapp.freehosting.dev/oauth2callback.php');
 
