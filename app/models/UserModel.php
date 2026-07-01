@@ -33,6 +33,12 @@ class UserModel {
                 $this->db->exec("ALTER TABLE `user_auth` ADD COLUMN `skip_otp` TINYINT(1) NOT NULL DEFAULT 0");
             }
 
+            // Check if first_login_completed exists on user_auth
+            $cols = $this->db->query("SHOW COLUMNS FROM `user_auth` LIKE 'first_login_completed'")->fetchAll();
+            if (empty($cols)) {
+                $this->db->exec("ALTER TABLE `user_auth` ADD COLUMN `first_login_completed` TINYINT(1) NOT NULL DEFAULT 0");
+            }
+
             // Create trusted devices table if it doesn't exist
             $this->db->exec("
                 CREATE TABLE IF NOT EXISTS `user_trusted_devices` (
@@ -83,7 +89,7 @@ class UserModel {
                 r.role_name,
                 p.address_encrypted, p.barangay_code, p.profile_complete,
                 p.assigned_bns_id,
-                a.google_id, a.verification_token, a.failed_attempts, a.locked_until, a.skip_otp
+                a.google_id, a.verification_token, a.failed_attempts, a.locked_until, a.skip_otp, a.first_login_completed
             FROM users u
             LEFT JOIN roles         r ON u.role_id  = r.role_id
             LEFT JOIN user_profiles p ON u.user_id  = p.user_id
@@ -101,7 +107,8 @@ class UserModel {
 
     public function register(array $data): int {
         $hash  = password_hash($data['password'], PASSWORD_BCRYPT, ['cost' => 12]);
-        $token = bin2hex(random_bytes(32));
+        // Use shorter token to avoid truncation issues
+        $token = bin2hex(random_bytes(16)); // 32 characters instead of 64
 
         // Insert core user
         $this->db->prepare("
@@ -476,6 +483,20 @@ class UserModel {
     }
 
     /**
+     * Marks first login as completed — OTP will be skipped on future logins.
+     */
+    public function markFirstLoginCompleted(int $userId): void {
+        try {
+            $this->db->prepare("
+                INSERT INTO user_auth (user_id, first_login_completed) VALUES (?, 1)
+                ON DUPLICATE KEY UPDATE first_login_completed = 1
+            ")->execute([$userId]);
+        } catch (\PDOException $e) {
+            error_log('markFirstLoginCompleted: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Returns all resident accounts assigned to the given BNS user.
      * Includes force_password_change (pending first login indicator) and profile_complete.
      */
@@ -541,10 +562,51 @@ class UserModel {
 
     /**
      * Revokes all trusted devices for a user (e.g., after password reset).
+     * Also resets first_login_completed flag for security.
      */
     public function revokeAllTrustedDevices(int $userId): void {
         $this->db->prepare("
             DELETE FROM user_trusted_devices WHERE user_id = ?
         ")->execute([$userId]);
+        
+        // Reset first login flag so OTP is required again after password reset
+        try {
+            $this->db->prepare("
+                UPDATE user_auth SET first_login_completed = 0 WHERE user_id = ?
+            ")->execute([$userId]);
+        } catch (\PDOException $e) {
+            error_log('revokeAllTrustedDevices: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Manually verify an email address - bypasses email verification process
+     * Useful when email delivery fails but user needs access
+     */
+    public function manuallyVerifyEmail(string $email): bool {
+        $stmt = $this->db->prepare("
+            SELECT user_id FROM users WHERE email = ? AND is_verified = 0
+        ");
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+        
+        if (!$row) {
+            return false; // Email not found or already verified
+        }
+        
+        $userId = $row['user_id'];
+        
+        // Mark as verified
+        $update = $this->db->prepare("
+            UPDATE users SET is_verified = 1 WHERE user_id = ?
+        ");
+        $update->execute([$userId]);
+        
+        // Clear verification token
+        $this->db->prepare("
+            UPDATE user_auth SET verification_token = NULL WHERE user_id = ?
+        ")->execute([$userId]);
+        
+        return $update->rowCount() > 0;
     }
 }

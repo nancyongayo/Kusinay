@@ -26,9 +26,20 @@ $ageYears   = !$isChild && !empty($subject['dob'])
 <nav aria-label="breadcrumb" class="mb-3">
     <ol class="breadcrumb" style="font-size:.88rem">
         <li class="breadcrumb-item"><a href="index.php?action=dataEncoding" style="color:var(--kn-green)">Resident Assessment</a></li>
-        <li class="breadcrumb-item active">Assessment Form</li>
+        <?php if (!empty($recoveryProposalId)): ?>
+        <li class="breadcrumb-item"><a href="index.php?action=bnsRecoveryStatus&proposal_id=<?= (int)$recoveryProposalId ?>" style="color:var(--kn-green)">Recovery Status</a></li>
+        <?php endif; ?>
+        <li class="breadcrumb-item active"><?= !empty($recoveryProposalId) ? 'Follow-up Assessment' : 'Assessment Form' ?></li>
     </ol>
 </nav>
+
+<?php if (!empty($recoveryProposalId)): ?>
+<div class="alert alert-info mb-3" style="border-radius:10px;font-size:.9rem">
+    <i class="bi bi-info-circle-fill me-2"></i>
+    <strong>BNS follow-up assessment.</strong> Record post-program weight, height, and MUAC.
+    The Nutrition Officer II will validate recovery after you save.
+</div>
+<?php endif; ?>
 
 <div class="row g-4">
     <!-- Left: Subject info + form -->
@@ -86,6 +97,9 @@ $ageYears   = !$isChild && !empty($subject['dob'])
             <?php elseif (!empty($subject['fm_member_id'])): ?>
             <input type="hidden" name="fm_member_id" value="<?= (int)$subject['fm_member_id'] ?>">
             <?php endif; ?>
+            <?php endif; ?>
+            <?php if (!empty($recoveryProposalId)): ?>
+            <input type="hidden" name="proposal_id" value="<?= (int)$recoveryProposalId ?>">
             <?php endif; ?>
 
             <div class="card shadow-sm">
@@ -151,8 +165,8 @@ $ageYears   = !$isChild && !empty($subject['dob'])
                         </div>
                         <?php endif; ?>
 
-                        <?php if ($type === 'maternal' && !empty($subject['pregnancy_status']) && str_contains($subject['pregnancy_status'], 'Pregnant')): ?>
-                        <!-- ── Pregnant-specific fields ── -->
+                        <?php if ($type === 'maternal'): ?>
+                        <!-- ── Pregnant/Lactating-specific fields (show for ALL maternal assessments) ── -->
                         <div class="col-12">
                             <hr style="border-color:rgba(107,122,58,.15)">
                             <div style="font-size:.82rem;font-weight:700;color:var(--kn-green);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem">
@@ -225,7 +239,9 @@ $ageYears   = !$isChild && !empty($subject['dob'])
                 <button type="submit" class="btn fw-semibold" style="background:var(--kn-green);color:#fff">
                     <i class="bi bi-save me-1"></i> Save Assessment
                 </button>
-                <a href="index.php?action=dataEncoding&tab=<?= $type === 'child' ? 'children' : ($type === 'senior' ? 'seniors' : 'maternal') ?>"
+                <a href="<?= !empty($recoveryProposalId)
+                    ? 'index.php?action=bnsRecoveryStatus&proposal_id=' . (int)$recoveryProposalId
+                    : 'index.php?action=dataEncoding&tab=' . ($type === 'child' ? 'children' : ($type === 'senior' ? 'seniors' : 'maternal')) ?>"
                    class="btn btn-outline-secondary">Cancel</a>
             </div>
         </form>

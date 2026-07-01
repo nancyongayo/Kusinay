@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_role'])) {
     Security::verifyCsrf();
     $targetId = (int) ($_POST['target_user_id'] ?? 0);
     $newRole  = (int) ($_POST['new_role_id']    ?? 0);
-    if ($targetId && in_array($newRole, [1,2,3,4])) {
+    if ($targetId && in_array($newRole, [1,2,3,4,5,6,7])) {
         $db->prepare("UPDATE users SET role_id = ? WHERE user_id = ?")
            ->execute([$newRole, $targetId]);
         // Log it

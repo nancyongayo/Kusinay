@@ -536,7 +536,21 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Prevent double-submit
-document.getElementById('sessionForm').addEventListener('submit', function () {
+let allowSessionSubmit = false;
+
+document.getElementById('submitBtn').addEventListener('click', function () {
+    allowSessionSubmit = true;
+});
+
+document.getElementById('sessionForm').addEventListener('submit', function (e) {
+    // Guard against accidental submits triggered outside the Set Schedule button.
+    const submitter = e.submitter || null;
+    const isMainSubmit = submitter && submitter.id === 'submitBtn';
+    if (!allowSessionSubmit && !isMainSubmit) {
+        e.preventDefault();
+        return;
+    }
+
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving…';

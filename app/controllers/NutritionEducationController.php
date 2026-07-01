@@ -521,11 +521,210 @@ class NutritionEducationController {
             header('Location: index.php?action=nutritionEducationList'); exit;
         }
 
-        $rsvpList = $this->model->getRsvpList($sessionId);
+        // Get RSVP list - get children for parents who confirmed
+        // First, get parents who confirmed
+        $stmt = $this->db->prepare("
+            SELECT 
+                r.rsvp_id,
+                r.session_id,
+                r.user_id,
+                r.rsvp_at as rsvp_date,
+                'confirmed' as rsvp_status,
+                u.first_name as parent_first_name,
+                u.last_name as parent_last_name,
+                u.email as parent_email,
+                u.contact as parent_phone,
+                CONCAT(u.first_name, ' ', u.last_name) as parent_full_name,
+                u.user_id as mother_id
+            FROM session_rsvp r
+            LEFT JOIN users u ON u.user_id = r.user_id
+            WHERE r.session_id = :session_id
+            ORDER BY u.first_name ASC
+        ");
+        $stmt->execute([':session_id' => $sessionId]);
+        $parentRsvps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $rsvpList = [];
+
+        // For each parent, get their children
+        foreach ($parentRsvps as $parent) {
+            // Get children from family_members table first
+            $childStmt = $this->db->prepare("
+                SELECT DISTINCT
+                    CONCAT(TRIM(fm.first_name), ' ', TRIM(fm.last_name)) as child_name,
+                    fm.member_id
+                FROM family_links fl
+                INNER JOIN family_profiles fp ON (
+                    fp.source_user_id = CASE 
+                        WHEN fl.user_id_a = :user_id THEN fl.user_id_b 
+                        ELSE fl.user_id_a 
+                    END
+                )
+                INNER JOIN family_members fm ON fm.family_id = fp.family_id
+                WHERE (fl.user_id_a = :user_id2 OR fl.user_id_b = :user_id3)
+                  AND fl.relationship_type = 'Husband-Wife'
+                  AND fm.relationship IN ('Son', 'Daughter', 'Child')
+                  AND TIMESTAMPDIFF(YEAR, fm.birthdate, CURDATE()) < 18
+                ORDER BY fm.birthdate DESC
+            ");
+            $childStmt->execute([
+                ':user_id' => $parent['user_id'],
+                ':user_id2' => $parent['user_id'],
+                ':user_id3' => $parent['user_id']
+            ]);
+            $children = $childStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // If no children found via family_members, try nutrition assessments
+            if (empty($children)) {
+                $assessmentStmt = $this->db->prepare("
+                    SELECT DISTINCT
+                        na.full_name as child_name,
+                        na.child_id
+                    FROM nutrition_assessments na
+                    WHERE na.parent_user_id = :user_id
+                      AND na.assessed_type = 'child'
+                      AND TIMESTAMPDIFF(YEAR, na.dob, CURDATE()) < 18
+                    GROUP BY na.full_name, na.dob
+                    ORDER BY na.assessment_date DESC
+                ");
+                $assessmentStmt->execute([':user_id' => $parent['user_id']]);
+                $children = $assessmentStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // If still no children, show parent name with indicator
+            if (empty($children)) {
+                $children = [[
+                    'child_name' => $parent['parent_full_name'],
+                    'member_id' => null
+                ]];
+            }
+
+            // Create RSVP entry for each child
+            foreach ($children as $child) {
+                // Check attendance status
+                $attendanceStmt = $this->db->prepare("
+                    SELECT attendance_id, 
+                           CASE WHEN attendance_id IS NOT NULL THEN 1 ELSE NULL END as is_present
+                    FROM education_attendance 
+                    WHERE session_id = :session_id 
+                      AND user_id = :user_id
+                    LIMIT 1
+                ");
+                $attendanceStmt->execute([
+                    ':session_id' => $sessionId,
+                    ':user_id' => $parent['user_id']
+                ]);
+                $attendance = $attendanceStmt->fetch(PDO::FETCH_ASSOC);
+
+                $rsvpList[] = array_merge($parent, [
+                    'name_of_client' => $child['child_name'],
+                    'mother_name' => $parent['parent_full_name'],
+                    'is_present' => $attendance['is_present'] ?? null,
+                    'attendance_id' => $attendance['attendance_id'] ?? null
+                ]);
+            }
+        }
+
+        // Calculate stats
+        $stats = [
+            'total' => count($rsvpList),
+            'confirmed' => count($rsvpList), // All in session_rsvp are confirmed
+            'declined' => 0,
+            'pending' => 0,
+            'present' => 0,
+            'absent' => 0,
+            'not_marked' => 0
+        ];
+
+        foreach ($rsvpList as $rsvp) {
+            if ($rsvp['is_present'] === null) {
+                $stats['not_marked']++;
+            } elseif ($rsvp['is_present'] == 1) {
+                $stats['present']++;
+            }
+        }
 
         $pageTitle = 'Confirmed Attendees';
         $activeNav = 'nutrition_education';
         include __DIR__ . '/../views/bns/session_rsvp_list.php';
+    }
+
+    /**
+     * BNS marks attendance (present/absent) for nutrition education
+     */
+    public function markNutritionAttendance(): void {
+        $this->requireBNS();
+        
+        try {
+            $sessionId = (int)($_POST['session_id'] ?? 0);
+            $userId = (int)($_POST['user_id'] ?? 0);
+            $isPresent = (int)($_POST['is_present'] ?? 0);
+
+            // Verify session belongs to this BNS
+            $session = $this->model->getSessionById($sessionId);
+            if (!$session || $session['bns_id'] != $_SESSION['user_id']) {
+                $_SESSION['flash_error'] = 'Session not found.';
+                header('Location: index.php?action=nutritionEducationList');
+                exit;
+            }
+
+            // Get user details
+            $userStmt = $this->db->prepare("
+                SELECT CONCAT(first_name, ' ', last_name) as full_name, 
+                       up.purok
+                FROM users u
+                LEFT JOIN user_profiles up ON up.user_id = u.user_id
+                WHERE u.user_id = :user_id
+            ");
+            $userStmt->execute([':user_id' => $userId]);
+            $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($isPresent == 1) {
+                // Mark as present - insert into education_attendance if not exists
+                $checkStmt = $this->db->prepare("
+                    SELECT attendance_id FROM education_attendance 
+                    WHERE session_id = :session_id AND user_id = :user_id
+                ");
+                $checkStmt->execute([
+                    ':session_id' => $sessionId,
+                    ':user_id' => $userId
+                ]);
+                
+                if (!$checkStmt->fetch()) {
+                    // Insert new attendance record
+                    $insertStmt = $this->db->prepare("
+                        INSERT INTO education_attendance 
+                        (session_id, user_id, full_name, purok, signature, attended_at)
+                        VALUES (:session_id, :user_id, :full_name, :purok, 'Present', CURRENT_TIMESTAMP)
+                    ");
+                    $insertStmt->execute([
+                        ':session_id' => $sessionId,
+                        ':user_id' => $userId,
+                        ':full_name' => $user['full_name'] ?? 'Unknown',
+                        ':purok' => $user['purok'] ?? null
+                    ]);
+                }
+            } else {
+                // Mark as absent - remove from education_attendance if exists
+                $deleteStmt = $this->db->prepare("
+                    DELETE FROM education_attendance 
+                    WHERE session_id = :session_id AND user_id = :user_id
+                ");
+                $deleteStmt->execute([
+                    ':session_id' => $sessionId,
+                    ':user_id' => $userId
+                ]);
+            }
+
+            $_SESSION['flash'] = 'Attendance marked successfully.';
+            header('Location: index.php?action=sessionRsvpList&session_id=' . $sessionId);
+            exit;
+        } catch (Exception $e) {
+            error_log("Error marking nutrition attendance: " . $e->getMessage());
+            $_SESSION['flash_error'] = 'An error occurred.';
+            header('Location: index.php?action=sessionRsvpList&session_id=' . ($sessionId ?? 0));
+            exit;
+        }
     }
 
     /**

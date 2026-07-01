@@ -7,11 +7,13 @@ require_once __DIR__ . '/../../../core/Security.php';
 $userName  = $_SESSION['user_name'] ?? 'User';
 $pageTitle = $pageTitle ?? 'Dashboard';
 $activeNav = $activeNav ?? 'validation';
-$flash     = $_SESSION['flash'] ?? null;
-unset($_SESSION['flash']);
+$flash       = $_SESSION['flash'] ?? null;
+$flashError  = $_SESSION['flash_error'] ?? null;
+unset($_SESSION['flash'], $_SESSION['flash_error']);
 
 $nav = [
     ['key'=>'validation', 'label'=>'Report Validation',    'icon'=>'bi-patch-check-fill', 'url'=>'index.php?action=reportValidation'],
+    ['key'=>'recovery',   'label'=>'Recovery Validation',  'icon'=>'bi-heart-pulse-fill', 'url'=>'index.php?action=recoveryValidation'],
     ['key'=>'reports',    'label'=>'Reports',               'icon'=>'bi-bar-chart-line',   'url'=>'#', 'disabled'=>true],
 ];
 ?>
@@ -64,6 +66,12 @@ $nav = [
 <?php if ($flash): ?>
 <div class="alert alert-success alert-dismissible fade show mb-3">
     <i class="bi bi-check-circle-fill me-2"></i><?= htmlspecialchars($flash) ?>
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+<?php endif; ?>
+<?php if ($flashError): ?>
+<div class="alert alert-danger alert-dismissible fade show mb-3">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i><?= htmlspecialchars($flashError) ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>

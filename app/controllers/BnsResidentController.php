@@ -196,7 +196,7 @@ class BnsResidentController {
         if ($sent) {
             $_SESSION['flash'] = "Account created for {$fullName}. A setup link has been sent to {$email}.";
         } else {
-            $setupLink = 'http://localhost/KusiNay(Capstone)/index.php?action=setupAccount&token=' . urlencode($setupToken);
+            $setupLink = 'https://kusinayapp.freehosting.dev/index.php?action=setupAccount&token=' . urlencode($setupToken);
             $_SESSION['flash'] = "Account created for {$fullName}. Email could not be sent. "
                 . "Share this setup link manually: <a href='" . htmlspecialchars($setupLink) . "' style='color:var(--kn-orange)'>"
                 . htmlspecialchars($setupLink) . "</a>";
@@ -260,7 +260,7 @@ class BnsResidentController {
         if ($sent) {
             $_SESSION['flash'] = "New setup link sent to {$resident['email']}.";
         } else {
-            $setupLink = 'http://localhost/KusiNay(Capstone)/index.php?action=setupAccount&token=' . urlencode($newToken);
+            $setupLink = 'https://kusinayapp.freehosting.dev/index.php?action=setupAccount&token=' . urlencode($newToken);
             $_SESSION['flash'] = "Email could not be sent. Share this link manually: <a href='" . htmlspecialchars($setupLink) . "' style='color:var(--kn-orange)'>" . htmlspecialchars($setupLink) . "</a>";
         }
 

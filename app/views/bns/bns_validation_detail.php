@@ -112,15 +112,15 @@ dl.row dd { font-size:.92rem; color:var(--kn-dark); }
                     <?php endif; ?>
                     
                     <?php if (($profile['gender'] ?? '') === 'Female'): ?>
-                        <?php if (!empty($healthProfile['pregnancy_status'])): ?>
+                        <?php
+                            $pregStatus = trim((string)($healthProfile['pregnancy_status'] ?? ''));
+                            $bfStatus = trim((string)($healthProfile['breastfeeding_status'] ?? ''));
+                        ?>
                         <dt class="col-sm-4">Pregnancy Status</dt>
-                        <dd class="col-sm-8"><?= htmlspecialchars($healthProfile['pregnancy_status']) ?></dd>
-                        <?php endif; ?>
-                        
-                        <?php if (!empty($healthProfile['breastfeeding_status'])): ?>
+                        <dd class="col-sm-8"><?= htmlspecialchars($pregStatus !== '' ? $pregStatus : '—') ?></dd>
+
                         <dt class="col-sm-4">Breastfeeding Status</dt>
-                        <dd class="col-sm-8"><?= htmlspecialchars($healthProfile['breastfeeding_status']) ?></dd>
-                        <?php endif; ?>
+                        <dd class="col-sm-8"><?= htmlspecialchars($bfStatus !== '' ? $bfStatus : '—') ?></dd>
                     <?php endif; ?>
                     <?php endif; ?>
                 </dl>
@@ -214,6 +214,24 @@ dl.row dd { font-size:.92rem; color:var(--kn-dark); }
 
                     <dt class="col-sm-5">Uses Iodized Salt</dt>
                     <dd class="col-sm-7"><?= ($household['uses_iodized_salt'] ?? 0) ? 'Yes' : 'No' ?></dd>
+
+                    <dt class="col-sm-5">Couple Practice Family Planning</dt>
+                    <dd class="col-sm-7">
+                        <?php
+                            $fpLabel = trim((string)($household['fp_method_label'] ?? ''));
+                            $fpOther = trim((string)($household['fp_method_other'] ?? ''));
+                            if ($fpLabel !== '') {
+                                echo htmlspecialchars($fpLabel);
+                            } elseif (!empty($household['fp_method_id'])) {
+                                echo 'Method ID: ' . (int)$household['fp_method_id'];
+                            } else {
+                                echo '—';
+                            }
+                            if ($fpOther !== '') {
+                                echo ' — ' . htmlspecialchars($fpOther);
+                            }
+                        ?>
+                    </dd>
 
                     <?php if (isset($household['hof_needs_review'])): ?>
                     <dt class="col-sm-5">HOF Needs Review</dt>

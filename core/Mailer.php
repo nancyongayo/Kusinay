@@ -6,12 +6,14 @@ require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../config/google.php';
 
 class Mailer {
+    // Gmail SMTP Configuration - Updated approach
     private string $smtpUser = 'nancyongayo24@gmail.com';
-    private string $smtpPass = 'zrmx qfex xwwk svrl';
+    private string $smtpPass = 'zrmx qfex xwwk svrl'; // Original app password - let's try this first
 
     private function buildMailer(): PHPMailer {
         $mail = new PHPMailer(true);
         $mail->isSMTP();
+        // Gmail SMTP Settings
         $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
         $mail->Username   = $this->smtpUser;
@@ -29,17 +31,20 @@ class Mailer {
     }
 
     public function sendVerificationEmail(string $toEmail, string $toName, string $token): bool {
-        $link = 'http://localhost/KusiNay(Capstone)/index.php?action=verify&token=' . urlencode($token);
+        $link = 'https://kusinayapp.freehosting.dev/verify_success.php?token=' . urlencode($token);
         $mail = $this->buildMailer();
         $mail->addAddress($toEmail, $toName);
         $mail->Subject = 'KusiNay – Verify Your Email Address';
-        $mail->Body    = $this->emailTemplate(
+        
+        // Simple version - use emailTemplate like other working methods
+        $mail->Body = $this->emailTemplate(
             'Verify Your Email',
             "Hi <strong>" . htmlspecialchars($toName) . "</strong>,<br><br>
              Thank you for registering with KusiNay. Click the button below to verify your email address and activate your account.",
             $link,
             'Verify My Email'
         );
+        
         return $this->send($mail);
     }
 
@@ -65,7 +70,7 @@ class Mailer {
     }
 
     public function sendPasswordResetEmail(string $toEmail, string $toName, string $token): bool {
-        $link = 'http://localhost/KusiNay(Capstone)/index.php?action=resetPassword&token=' . urlencode($token);
+        $link = 'https://kusinayapp.freehosting.dev/index.php?action=resetPassword&token=' . urlencode($token);
         $mail = $this->buildMailer();
         $mail->addAddress($toEmail, $toName);
         $mail->Subject = 'KusiNay – Password Reset Request';
@@ -85,7 +90,7 @@ class Mailer {
      * No password is shown — resident clicks the link to set their own password.
      */
     public function sendResidentInviteEmail(string $toEmail, string $toName, string $setupToken): bool {
-        $setupUrl = 'http://localhost/KusiNay(Capstone)/index.php?action=setupAccount&token=' . urlencode($setupToken);
+        $setupUrl = 'https://kusinayapp.freehosting.dev/index.php?action=setupAccount&token=' . urlencode($setupToken);
         $mail = $this->buildMailer();
         $mail->addAddress($toEmail, $toName);
         $mail->Subject = 'KusiNay – Set Up Your Account';
@@ -108,7 +113,7 @@ class Mailer {
      * Kept for backward compatibility — new flow uses sendResidentInviteEmail.
      */
     public function sendResidentCredentialsEmail(string $toEmail, string $toName, string $tempPassword): bool {
-        $loginUrl = 'http://localhost/KusiNay(Capstone)/index.php?action=login';
+        $loginUrl = 'https://kusinayapp.freehosting.dev/index.php?action=login';
         $mail = $this->buildMailer();
         $mail->addAddress($toEmail, $toName);
         $mail->Subject = 'KusiNay – Your Account Credentials';
@@ -154,15 +159,24 @@ class Mailer {
     private function emailTemplate(string $title, string $body, ?string $btnLink, ?string $btnText): string {
         $btn = $btnLink ? "
             <div style='text-align:center;margin-top:28px'>
-                <a href='{$btnLink}'
+                <a href='{$btnLink}' target='_blank' rel='noopener'
                    style='background:#6B7A3A;color:#F5EDD6;padding:14px 32px;border-radius:10px;
                           text-decoration:none;font-weight:700;font-size:1rem;display:inline-block'>
-                    {$btnText}
+                    {$btnText} →
                 </a>
             </div>
-            <p style='text-align:center;margin-top:12px;font-size:.78rem;color:#999'>
-                Or copy this link: <a href='{$btnLink}' style='color:#C4722A'>{$btnLink}</a>
-            </p>" : '';
+            <div style='text-align:center;margin-top:20px;background:#f8f9fa;padding:15px;border-radius:8px'>
+                <p style='margin:0 0 8px;font-weight:600;color:#333;font-size:.9rem'>
+                    📋 Copy this link to verify manually:
+                </p>
+                <div style='background:#fff;border:1px solid #ddd;border-radius:6px;padding:10px;
+                            font-family:monospace;font-size:.8rem;word-break:break-all;color:#333'>
+                    {$btnLink}
+                </div>
+                <p style='margin:8px 0 0;font-size:.75rem;color:#666'>
+                    💡 Tip: Right-click the link above and select &quot;Copy&quot; to use it in a new browser tab
+                </p>
+            </div>" : '';
 
         return "
         <!DOCTYPE html>

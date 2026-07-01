@@ -8,6 +8,14 @@ if ($role === 'BNS Staff') {
     include __DIR__ . '/../templates/bns_layout.php';
 } elseif ($role === 'Mother') {
     include __DIR__ . '/../templates/mother_layout.php';
+} elseif ($role === 'Committee Chair on Health') {
+    include __DIR__ . '/../templates/committee_chair_layout.php';
+} elseif ($role === 'Committee Secretary') {
+    include __DIR__ . '/../templates/committee_secretary_layout.php';
+} elseif ($role === 'Barangay Captain') {
+    include __DIR__ . '/../templates/barangay_captain_layout.php';
+} elseif ($role === 'Market Vendor') {
+    include __DIR__ . '/../templates/market_vendor_layout.php';
 } else {
     // Fallback: require login
     if (session_status() === PHP_SESSION_NONE) session_start();
@@ -32,11 +40,68 @@ if ($role === 'BNS Staff') {
 </div>
 <?php else: ?>
 
+<style>
+/* Notification list styling */
+.list-group-item {
+    border-radius: 12px !important;
+    margin-bottom: 0.75rem;
+    border: 1px solid rgba(0,0,0,.08) !important;
+    transition: all .3s;
+}
+.list-group-item:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    transform: translateX(4px);
+}
+.list-group-item.list-group-item-light {
+    background: linear-gradient(135deg, rgba(13,110,253,.05) 0%, rgba(13,110,253,.02) 100%);
+}
+
+/* Delete button fix */
+.btn-outline-danger {
+    border: 1.5px solid #dc3545 !important;
+    color: #dc3545 !important;
+    background: transparent !important;
+    border-radius: 8px !important;
+    padding: 0.35rem 0.65rem !important;
+    transition: all .25s !important;
+    font-size: 0.9rem !important;
+}
+.btn-outline-danger:hover {
+    background: #dc3545 !important;
+    color: #fff !important;
+    transform: scale(1.05) !important;
+    box-shadow: 0 2px 8px rgba(220,53,69,.3) !important;
+}
+.btn-outline-danger:active {
+    transform: scale(0.98) !important;
+}
+.btn-outline-danger:focus {
+    box-shadow: 0 0 0 3px rgba(220,53,69,.25) !important;
+}
+
+/* Action buttons */
+.btn-success, .btn-danger {
+    border-radius: 8px !important;
+    padding: 0.4rem 1rem !important;
+    font-weight: 600 !important;
+    transition: all .25s !important;
+}
+.btn-success:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(25,135,84,.3) !important;
+}
+.btn-danger:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(220,53,69,.3) !important;
+}
+</style>
+
 <div class="list-group" id="notification-list">
     <?php foreach ($notifications as $n): ?>
     <?php
         $isUnread = !(bool)$n['is_read'];
         $isAction = $n['action_type'] === 'relationship_confirm';
+        $isFeedingRSVP = $n['action_type'] === 'feeding_session_scheduled';
         
         // Determine navigation URL based on action type
         $navUrl = '';
@@ -59,6 +124,7 @@ if ($role === 'BNS Staff') {
                 break;
             case 'relationship_confirm':
             case 'relationship_rejected':
+            case 'feeding_session_scheduled':
                 // Stay on notifications page (has action buttons)
                 $navUrl = '';
                 break;
@@ -124,8 +190,8 @@ if ($role === 'BNS Staff') {
             </div>
             
             <!-- Delete button -->
-            <button type="button" class="btn btn-sm btn-outline-danger ms-2" 
-                    onclick="deleteNotification(<?= (int)$n['notification_id'] ?>, this)" 
+            <button type="button" class="btn btn-sm btn-outline-danger ms-2 delete-notif-btn" 
+                    onclick="event.stopPropagation(); deleteNotification(<?= (int)$n['notification_id'] ?>, this)" 
                     title="Delete notification">
                 <i class="bi bi-trash"></i>
             </button>
@@ -143,6 +209,27 @@ if ($role === 'BNS Staff') {
                 <input type="hidden" name="link_id" value="<?= (int)$n['reference_id'] ?>">
                 <button type="submit" class="btn btn-sm btn-danger">
                     <i class="bi bi-x-lg me-1"></i> Reject
+                </button>
+            </form>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($isFeedingRSVP): ?>
+        <div class="mt-3 d-flex gap-2">
+            <form method="POST" action="index.php?action=respondToRSVP" class="d-inline" onsubmit="return confirmRSVP('confirm')">
+                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?? '' ?>">
+                <input type="hidden" name="attendance_id" value="<?= (int)$n['reference_id'] ?>">
+                <input type="hidden" name="response" value="confirmed">
+                <button type="submit" class="btn btn-sm" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; border: none; padding: .5rem 1.2rem; border-radius: 8px; font-weight: 600;">
+                    <i class="bi bi-check-circle me-1"></i> Confirm Attendance
+                </button>
+            </form>
+            <form method="POST" action="index.php?action=respondToRSVP" class="d-inline" onsubmit="return confirmRSVP('decline')">
+                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?? '' ?>">
+                <input type="hidden" name="attendance_id" value="<?= (int)$n['reference_id'] ?>">
+                <input type="hidden" name="response" value="declined">
+                <button type="submit" class="btn btn-sm" style="background: transparent; color: #dc2626; border: 2px solid #dc2626; padding: .5rem 1.2rem; border-radius: 8px; font-weight: 600;">
+                    <i class="bi bi-x-circle me-1"></i> Decline
                 </button>
             </form>
         </div>
@@ -186,6 +273,14 @@ function navigateToNotification(url) {
     if (url) {
         window.location.href = url;
     }
+}
+
+// Confirm RSVP action
+function confirmRSVP(action) {
+    const message = action === 'confirm' 
+        ? 'Confirm your attendance for this feeding session?' 
+        : 'Decline attendance for this feeding session?';
+    return confirm(message);
 }
 
 // Delete notification with modal confirmation
@@ -293,4 +388,22 @@ function updateSidebarBadge(count) {
 }
 </script>
 
-<?php include __DIR__ . '/../templates/bns_layout_end.php'; ?>
+<?php 
+// Pick layout end based on role
+$role = $_SESSION['role'] ?? '';
+if ($role === 'BNS Staff') {
+    include __DIR__ . '/../templates/bns_layout_end.php';
+} elseif ($role === 'Mother') {
+    include __DIR__ . '/../templates/mother_layout_end.php';
+} elseif ($role === 'Committee Chair on Health') {
+    include __DIR__ . '/../templates/committee_chair_layout_end.php';
+} elseif ($role === 'Committee Secretary') {
+    include __DIR__ . '/../templates/committee_secretary_layout_end.php';
+} elseif ($role === 'Barangay Captain') {
+    include __DIR__ . '/../templates/barangay_captain_layout_end.php';
+} elseif ($role === 'Market Vendor') {
+    include __DIR__ . '/../templates/market_vendor_layout_end.php';
+} else {
+    include __DIR__ . '/../templates/bns_layout_end.php';
+}
+?>

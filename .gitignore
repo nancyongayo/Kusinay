@@ -1,0 +1,32 @@
+# Ignore dependencies
+vendor/
+
+# Ignore uploads, user files, runtime storage
+uploads/
+public/uploads/
+
+# Ignore environment and local config
+config/*.php
+!config/database.php
+!config/google.php
+!config/paymongo.php
+.env
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore logs and caches
+*.log
+cache/
+
+# Ignore PHPStorm/WebStorm files
+.idea/
+
+# Ignore Composer files that should not be committed
+composer.lock
+
+# Ignore temporary files
+*.tmp
+*.swp
+*~

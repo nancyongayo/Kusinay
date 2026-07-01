@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../models/NutritionAssessmentModel.php';
+require_once __DIR__ . '/../models/FeedingProgramModel.php';
 require_once __DIR__ . '/../../core/NutritionCalculator.php';
 
 class NutritionAssessmentController {
@@ -46,6 +47,25 @@ class NutritionAssessmentController {
         $type    = $_GET['type']     ?? 'child';   // child | maternal | senior
         $childId = (int)($_GET['child_id'] ?? 0);
         $userId  = (int)($_GET['user_id']  ?? 0);
+
+        // Recovery flow: resolve identity from attendance display name
+        if ($type === 'child' && !$childId && !isset($_GET['fm_member_id']) && !empty($_GET['full_name'])) {
+            $feedingModel = new FeedingProgramModel($this->db);
+            $identity     = $feedingModel->resolveChildIdentityFromName(trim((string)$_GET['full_name']));
+            $extra = array_filter([
+                'proposal_id' => $_GET['proposal_id'] ?? null,
+            ]);
+            if (!empty($identity['child_id'])) {
+                header('Location: index.php?action=assessmentForm&type=child&child_id='
+                    . (int)$identity['child_id'] . '&' . http_build_query($extra));
+                exit;
+            }
+            if (!empty($identity['fm_member_id'])) {
+                header('Location: index.php?action=assessmentForm&type=child&fm_member_id='
+                    . (int)$identity['fm_member_id'] . '&' . http_build_query($extra));
+                exit;
+            }
+        }
 
         $subject = null;
 
@@ -161,7 +181,8 @@ class NutritionAssessmentController {
             header('Location: index.php?action=dataEncoding'); exit;
         }
 
-        $pageTitle = 'Assessment Form';
+        $recoveryProposalId = (int)($_GET['proposal_id'] ?? 0);
+        $pageTitle = !empty($recoveryProposalId) ? 'Follow-up Assessment' : 'Assessment Form';
         $activeNav = 'data_encoding';
         include __DIR__ . '/../views/bns/assessment_form.php';
     }
@@ -292,6 +313,13 @@ class NutritionAssessmentController {
 
         $_SESSION['flash'] = 'Assessment saved successfully.' .
             ($data['is_at_risk'] ? ' ⚠️ This individual has been flagged as at-risk.' : '');
+
+        $proposalId = (int)($_POST['proposal_id'] ?? 0);
+        if ($proposalId > 0) {
+            header('Location: index.php?action=bnsRecoveryStatus&proposal_id=' . $proposalId);
+            exit;
+        }
+
         header('Location: index.php?action=dataEncoding&tab=' . $type);
         exit;
     }

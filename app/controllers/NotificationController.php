@@ -29,10 +29,30 @@ class NotificationController {
     public function listNotifications(): void {
         $this->requireAuth();
         $userId        = $_SESSION['user_id'];
+        $role          = $_SESSION['role'] ?? '';
         $notifications = $this->notifModel->listForUser($userId);
         $pageTitle     = 'Notifications';
         $activeNav     = 'notifications';
-        include __DIR__ . '/../views/mother/notifications.php';
+        
+        // Route to role-specific notification view
+        $viewMap = [
+            'Market Vendor'            => __DIR__ . '/../views/market_vendor/notifications.php',
+            'BNS Staff'                => __DIR__ . '/../views/bns/notifications.php',
+            'Nutrition Officer II'     => __DIR__ . '/../views/nutrition/notifications.php',
+            'Committee Chair on Health'=> __DIR__ . '/../views/committee_chair/notifications.php',
+            'Committee Secretary'      => __DIR__ . '/../views/committee_secretary/notifications.php',
+            'Barangay Captain'         => __DIR__ . '/../views/barangay_captain/notifications.php',
+            'Mother'                   => __DIR__ . '/../views/mother/notifications.php',
+        ];
+        
+        $viewFile = $viewMap[$role] ?? __DIR__ . '/../views/mother/notifications.php';
+        
+        // If role-specific view doesn't exist, create it or use mother view as fallback
+        if (!file_exists($viewFile)) {
+            $viewFile = __DIR__ . '/../views/mother/notifications.php';
+        }
+        
+        include $viewFile;
     }
 
     // ── Mark Read ─────────────────────────────────────────────────────────────

@@ -242,26 +242,28 @@ class FamilyProfileController {
         $isBottle      = ($hasFemale && $wifeBreastfeedingStatus === 'Bottle Feeding')   ? 1 : 0;
 
         $core = [
-            'hh_number'          => trim($_POST['hh_number']         ?? '') ?: null,
-            'purok'              => trim($_POST['purok']              ?? '') ?: null,
-            'num_hh_members'     => $_POST['num_hh_members']          ?? null ?: null,
-            'children_0_5mos'    => $_POST['children_0_5mos']         ?? null ?: null,
-            'children_6_23mos'   => $_POST['children_6_23mos']        ?? null ?: null,
-            'children_24_59mos'  => $_POST['children_24_59mos']       ?? null ?: null,
-            'children_60plus'    => $_POST['children_60plus']          ?? null ?: null,
-            'is_mother_prog'     => $isMotherProg,
-            'fp_method_id'       => $_POST['fp_method_id']            ?? null ?: null,
-            'fp_method_other'    => !empty($_POST['fp_method_other']) ? trim($_POST['fp_method_other']) : null,
-            'is_erf'             => $isErf,
-            'is_mixed_milk'      => $isMixedMilk,
-            'is_bottle_feeding'  => $isBottle,
-            'toilet_type_id'     => $_POST['toilet_type_id']          ?? null ?: null,
-            'water_source_id'    => $_POST['water_source_id']         ?? null ?: null,
-            'uses_iodized_salt'  => isset($_POST['uses_iodized_salt']) ? 1 : 0,
-            'uses_ifr'           => isset($_POST['uses_ifr'])          ? 1 : 0,
-            'dwelling_type_id'   => $_POST['dwelling_type_id']        ?? null ?: null,
-            'total_income'       => isset($_POST['total_income']) && $_POST['total_income'] !== '' ? $_POST['total_income'] : null,
-            'remarks'            => trim($_POST['remarks']             ?? '') ?: null,
+            'hh_number'                  => trim($_POST['hh_number']         ?? '') ?: null,
+            'purok'                      => trim($_POST['purok']              ?? '') ?: null,
+            'num_hh_members'             => $_POST['num_hh_members']          ?? null ?: null,
+            'children_0_5mos'            => $_POST['children_0_5mos']         ?? null ?: null,
+            'children_6_23mos'           => $_POST['children_6_23mos']        ?? null ?: null,
+            'children_24_59mos'          => $_POST['children_24_59mos']       ?? null ?: null,
+            'children_60plus'            => $_POST['children_60plus']          ?? null ?: null,
+            'is_mother_prog'             => $isMotherProg,
+            'wife_pregnancy_status'      => $hasFemale ? ($wifePregnancyStatus ?: null) : null,
+            'wife_breastfeeding_status'  => $hasFemale ? ($wifeBreastfeedingStatus ?: null) : null,
+            'fp_method_id'               => $_POST['fp_method_id']            ?? null ?: null,
+            'fp_method_other'            => !empty($_POST['fp_method_other']) ? trim($_POST['fp_method_other']) : null,
+            'is_erf'                     => $isErf,
+            'is_mixed_milk'              => $isMixedMilk,
+            'is_bottle_feeding'          => $isBottle,
+            'toilet_type_id'             => $_POST['toilet_type_id']          ?? null ?: null,
+            'water_source_id'            => $_POST['water_source_id']         ?? null ?: null,
+            'uses_iodized_salt'          => isset($_POST['uses_iodized_salt']) ? 1 : 0,
+            'uses_ifr'                   => isset($_POST['uses_ifr'])          ? 1 : 0,
+            'dwelling_type_id'           => $_POST['dwelling_type_id']        ?? null ?: null,
+            'total_income'               => isset($_POST['total_income']) && $_POST['total_income'] !== '' ? $_POST['total_income'] : null,
+            'remarks'                    => trim($_POST['remarks']             ?? '') ?: null,
         ];
 
         $this->db->beginTransaction();
@@ -333,7 +335,7 @@ class FamilyProfileController {
                         if ($sent) {
                             $_SESSION['flash'] = 'Family profile saved. Resident account created and setup link sent to ' . $headEmail . '.';
                         } else {
-                            $setupLink = 'http://localhost/KusiNay(Capstone)/index.php?action=setupAccount&token=' . urlencode($setupToken);
+                            $setupLink = 'https://kusinayapp.freehosting.dev/index.php?action=setupAccount&token=' . urlencode($setupToken);
                             $_SESSION['flash'] = 'Family profile saved. Resident account created. '
                                 . 'Email could not be sent — setup link: <a href="' . htmlspecialchars($setupLink) . '" style="color:var(--kn-orange)">' . htmlspecialchars($setupLink) . '</a>';
                         }

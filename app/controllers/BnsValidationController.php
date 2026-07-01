@@ -131,6 +131,9 @@ class BnsValidationController {
         }
 
         $healthProfile = $this->healthModel->getByUserId($profile['user_id']);
+        if (!$healthProfile) {
+            $healthProfile = [];
+        }
         
         // Load household with spouse education label
         $household = $this->householdModel->getByUserId($profile['user_id']);
@@ -179,6 +182,53 @@ class BnsValidationController {
             ");
             $spouseEducStmt->execute([':educ_id' => $household['spouse_educ_level_id'] ?? 0]);
             $household['spouse_educ_label'] = $spouseEducStmt->fetchColumn() ?: null;
+        }
+
+        // Fallback maternal status from family_profiles when health profile is incomplete.
+        if (
+            empty(trim((string)($healthProfile['pregnancy_status'] ?? ''))) ||
+            empty(trim((string)($healthProfile['breastfeeding_status'] ?? '')))
+        ) {
+            $maternalStmt = $this->db->prepare("
+                SELECT
+                    NULLIF(TRIM(wife_pregnancy_status), '') AS fp_pregnancy_status,
+                    NULLIF(TRIM(wife_breastfeeding_status), '') AS fp_breastfeeding_status
+                FROM family_profiles
+                WHERE source_user_id = :uid
+                LIMIT 1
+            ");
+            $maternalStmt->execute([':uid' => $profile['user_id']]);
+            $maternal = $maternalStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            if (empty(trim((string)($healthProfile['pregnancy_status'] ?? ''))) && !empty($maternal['fp_pregnancy_status'])) {
+                $healthProfile['pregnancy_status'] = $maternal['fp_pregnancy_status'];
+            }
+            if (empty(trim((string)($healthProfile['breastfeeding_status'] ?? ''))) && !empty($maternal['fp_breastfeeding_status'])) {
+                $healthProfile['breastfeeding_status'] = $maternal['fp_breastfeeding_status'];
+            }
+        }
+
+        // Fallback family planning method from family_profiles if missing in households.
+        if ($household && empty($household['fp_method_id'])) {
+            $fpFallbackStmt = $this->db->prepare("
+                SELECT fp_method_id
+                FROM family_profiles
+                WHERE source_user_id = :uid
+                LIMIT 1
+            ");
+            $fpFallbackStmt->execute([':uid' => $profile['user_id']]);
+            $household['fp_method_id'] = $fpFallbackStmt->fetchColumn() ?: null;
+        }
+
+        if ($household && !empty($household['fp_method_id'])) {
+            // Add family planning method label for readable display
+            $fpStmt = $this->db->prepare("
+                SELECT label
+                FROM ref_fp_methods
+                WHERE id = :fp_id
+            ");
+            $fpStmt->execute([':fp_id' => $household['fp_method_id']]);
+            $household['fp_method_label'] = $fpStmt->fetchColumn() ?: null;
         }
         
         $familyLinks   = $this->familyLinkModel->getLinksForUser($profile['user_id']);
@@ -510,6 +560,29 @@ class BnsValidationController {
             $cStmt->execute([$household['household_id']]);
             $children = $cStmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($children as $i => $child) {
+                // Check if this child already exists in family_members (prevent duplicates)
+                $dupCheck = $this->db->prepare("
+                    SELECT member_id FROM family_members
+                    WHERE family_id = ?
+                      AND role = 'Child'
+                      AND LOWER(TRIM(first_name)) = LOWER(TRIM(?))
+                      AND LOWER(TRIM(last_name)) = LOWER(TRIM(?))
+                      AND dob = ?
+                    LIMIT 1
+                ");
+                $dupCheck->execute([
+                    $familyId,
+                    $child['first_name'],
+                    $child['last_name'],
+                    $child['dob']
+                ]);
+                
+                // Skip if child already exists
+                if ($dupCheck->fetchColumn()) {
+                    continue;
+                }
+                
+                // Insert child
                 $this->db->prepare("
                     INSERT INTO family_members (family_id, role, last_name, first_name, middle_name, suffix, sex, dob, sort_order)
                     VALUES (?, 'Child', ?, ?, ?, ?, ?, ?, ?)

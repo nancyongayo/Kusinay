@@ -34,76 +34,6 @@ class AuthController {
         $_SESSION['last_activity'] = time();
     }
 
-    // ── OTP Policy constants ──────────────────────────────────────────────────
-    // Defines per-role trusted-device window (in days).
-    // 0 = OTP required on every login (no trusted device).
-    private const OTP_TRUST_DAYS = [
-        'Admin'                => 0,   // always OTP
-        'Nutrition Officer II' => 0,   // always OTP
-        'BNS Staff'            => 7,   // trusted device for 7 days
-        'Mother'               => 30,  // trusted device for 30 days
-    ];
-
-    private const TRUSTED_DEVICE_COOKIE = 'kn_trusted_device';
-
-    /**
-     * Returns the number of trust days for a given role.
-     * 0 means OTP is always required.
-     */
-    private function getTrustDays(?string $role): int {
-        return self::OTP_TRUST_DAYS[$role] ?? 0;
-    }
-
-    /**
-     * Checks if the current browser has a valid trusted-device cookie for this user.
-     */
-    private function hasTrustedDevice(int $userId, ?string $role): bool {
-        $days = $this->getTrustDays($role);
-        if ($days === 0) return false; // role always requires OTP
-
-        $rawToken = $_COOKIE[self::TRUSTED_DEVICE_COOKIE] ?? '';
-        if (!$rawToken) return false;
-
-        return $this->userModel->isTrustedDevice($userId, $rawToken);
-    }
-
-    /**
-     * Sets a trusted-device cookie and records it in the DB.
-     */
-    private function setTrustedDevice(int $userId, ?string $role): void {
-        $days = $this->getTrustDays($role);
-        if ($days === 0) return; // role always requires OTP — don't set cookie
-
-        $rawToken = $this->userModel->trustDevice($userId, $days);
-        $expiry   = time() + ($days * 86400);
-
-        setcookie(
-            self::TRUSTED_DEVICE_COOKIE,
-            $rawToken,
-            [
-                'expires'  => $expiry,
-                'path'     => '/',
-                'secure'   => false, // set true in production (HTTPS)
-                'httponly' => true,
-                'samesite' => 'Lax',
-            ]
-        );
-    }
-
-    /**
-     * Clears the trusted-device cookie and revokes all DB records for the user.
-     * Called after password reset.
-     */
-    private function clearTrustedDevices(int $userId): void {
-        $this->userModel->revokeAllTrustedDevices($userId);
-        setcookie(self::TRUSTED_DEVICE_COOKIE, '', [
-            'expires'  => time() - 3600,
-            'path'     => '/',
-            'httponly' => true,
-            'samesite' => 'Lax',
-        ]);
-    }
-
 
 
     public function showRegister(): void {
@@ -148,11 +78,12 @@ class AuthController {
         $sent  = $this->mailer->sendVerificationEmail($email, "$firstName $lastName", $token);
         $this->logActivity(null, 'REGISTER', "New registration: {$email}", $email);
 
+        // Always show direct verification link for now (email issues)
+        $link = 'https://kusinayapp.freehosting.dev/verify_success.php?token=' . urlencode($token);
+        
         if ($sent) {
-            $_SESSION['flash'] = 'Registration successful! Please check your email to verify your account.';
+            $_SESSION['flash'] = 'Registration successful! Please check your email to verify your account. If no email received, <a href="' . $link . '" style="color:var(--kn-orange)">click here to verify directly</a>.';
         } else {
-            // SMTP not configured — show the verify link directly for dev/testing
-            $link = 'http://localhost/KusiNay(Capstone)/index.php?action=verify&token=' . urlencode($token);
             $_SESSION['flash'] = 'Registered! Email could not be sent. <a href="' . $link . '" style="color:var(--kn-orange)">Click here to verify your account</a>.';
         }
 
@@ -233,22 +164,20 @@ class AuthController {
 
         $role      = $user['role_name'] ?? null;
         $userId    = $user['user_id'];
-        $trustDays = $this->getTrustDays($role);
 
-        // ── Per-role OTP policy ───────────────────────────────────────────────
+        // ── Simplified OTP policy: First login only ──────────────────────────
         //
-        // Admin / Nutrition Officer II  → OTP every login (trustDays = 0)
-        // BNS Staff                     → OTP unless device trusted for 7 days
-        // Mother / Resident             → OTP on first login only, then trusted
-        //                                 device for 30 days (skip_otp also bypasses)
+        // OTP is required ONLY on the first login.
+        // After first successful OTP verification, all subsequent logins skip OTP.
         //
         // Special case: BNS-registered residents with skip_otp=1 and no
         // force_password_change bypass OTP entirely (legacy behaviour kept).
 
         $skipOtp = !empty($user['skip_otp']) && empty($user['force_password_change']);
+        $firstLoginCompleted = !empty($user['first_login_completed']);
 
-        if ($skipOtp || ($trustDays > 0 && $this->hasTrustedDevice($userId, $role))) {
-            // Bypass OTP — trusted device or BNS-registered resident
+        if ($skipOtp || $firstLoginCompleted) {
+            // Bypass OTP — not first login or BNS-registered resident
             session_regenerate_id(true);
             $_SESSION['user_id']          = $userId;
             $_SESSION['user_name']        = $user['first_name'] . ' ' . $user['last_name'];
@@ -258,7 +187,7 @@ class AuthController {
             $_SESSION['barangay_code']    = $user['barangay_code'] ?? '';
             $_SESSION['last_activity']    = time();
 
-            $reason = $skipOtp ? 'OTP skipped — BNS-registered resident' : "trusted device ({$role})";
+            $reason = $skipOtp ? 'OTP skipped — BNS-registered resident' : 'OTP skipped — not first login';
             $this->logActivity($userId, 'LOGIN_SUCCESS', "User logged in ({$reason})");
             session_write_close();
 
@@ -268,12 +197,12 @@ class AuthController {
             $this->redirectByRole($role);
         }
 
-        // OTP required — generate and send
+        // OTP required — first login, generate and send
         $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $this->userModel->saveOTP($userId, $otp);
 
         $_SESSION['temp_user_id'] = $userId;
-        $this->logActivity($userId, 'OTP_SENT', "OTP sent to {$email}");
+        $this->logActivity($userId, 'OTP_SENT', "OTP sent to {$email} (first login)");
 
         // Send OTP email — if it fails, show code on screen (dev fallback)
         $sent = $this->mailer->sendOTPEmail($email, $user['first_name'], $otp);
@@ -330,8 +259,8 @@ class AuthController {
         $this->logActivity($user['user_id'], isset($_SESSION['temp_via_google']) ? 'GOOGLE_LOGIN' : 'LOGIN_SUCCESS', 'User logged in successfully');
         unset($_SESSION['temp_via_google']);
 
-        // Set trusted-device cookie so future logins skip OTP (role-dependent)
-        $this->setTrustedDevice($user['user_id'], $user['role_name'] ?? null);
+        // Mark first login as completed so future logins skip OTP
+        $this->userModel->markFirstLoginCompleted($user['user_id']);
 
         // Force session write before redirect
         session_write_close();
@@ -372,7 +301,7 @@ class AuthController {
         $barangayCode = trim($_POST['barangay_code']   ?? '');
 
         $errors = [];
-        if (!in_array($roleId, [1, 2, 3, 4])) $errors[] = 'Please select a valid role.';
+        if (!in_array($roleId, [1, 2, 3, 4, 5, 6, 7, 8])) $errors[] = 'Please select a valid role.';
         if (!$address)                          $errors[] = 'Address is required.';
         if (!$barangayCode)                     $errors[] = 'Please select a barangay.';
 
@@ -460,13 +389,46 @@ class AuthController {
             $gUser->familyName ?? ''
         );
 
-        // Google users still require OTP for login security
-        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        $this->userModel->saveOTP($user['user_id'], $otp);
+        $userId = $user['user_id'];
+        $firstLoginCompleted = !empty($user['first_login_completed']);
 
-        $_SESSION['temp_user_id']    = $user['user_id'];
+        // Google OAuth login successful
+        file_put_contents(__DIR__ . '/../../google_login_debug.txt', 
+            date('Y-m-d H:i:s') . " - User: {$user['email']}, first_login_completed: " . 
+            ($user['first_login_completed'] ?? 'NULL') . ", will skip OTP: " . 
+            ($firstLoginCompleted ? 'YES' : 'NO') . "\n", 
+            FILE_APPEND
+        );
+
+        // Check if this is first login - only require OTP on first login
+        if ($firstLoginCompleted) {
+            // Not first login - skip OTP and login directly
+            session_regenerate_id(true);
+            $_SESSION['user_id']          = $userId;
+            $_SESSION['user_name']        = $user['first_name'] . ' ' . $user['last_name'];
+            $_SESSION['user_email']       = $user['email'];
+            $_SESSION['role']             = $user['role_name'] ?? null;
+            $_SESSION['profile_complete'] = !empty($user['profile_complete']) && !empty($user['role_id']);
+            $_SESSION['barangay_code']    = $user['barangay_code'] ?? '';
+            $_SESSION['last_activity']    = time();
+
+            $this->logActivity($userId, 'GOOGLE_LOGIN', 'User logged in via Google (OTP skipped - not first login)');
+            session_write_close();
+
+            if (!$_SESSION['profile_complete']) {
+                header('Location: index.php?action=roleSelection');
+                exit;
+            }
+            $this->redirectByRole($user['role_name']);
+        }
+
+        // First login - require OTP for security
+        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $this->userModel->saveOTP($userId, $otp);
+
+        $_SESSION['temp_user_id']    = $userId;
         $_SESSION['temp_via_google'] = true;
-        $this->logActivity($user['user_id'], 'GOOGLE_OTP_SENT', 'OTP sent after Google login');
+        $this->logActivity($userId, 'GOOGLE_OTP_SENT', 'OTP sent after Google login (first login)');
 
         $sent = $this->mailer->sendOTPEmail($user['email'], $user['first_name'], $otp);
         if (!$sent) {
@@ -621,8 +583,8 @@ class AuthController {
         $this->userModel->clearForcePasswordChange($userId);
         // Mark this account to skip OTP on future logins (first login complete)
         $this->userModel->setSkipOtp($userId);
-        // Revoke any existing trusted devices — fresh trust after password change
-        $this->clearTrustedDevices($userId);
+        // Revoke any existing trusted devices and reset first login flag
+        $this->userModel->revokeAllTrustedDevices($userId);
         $this->logActivity($userId, 'PASSWORD_FORCE_CHANGED', 'Resident completed mandatory password change');
 
         // Refresh session profile_complete flag
@@ -657,7 +619,7 @@ class AuthController {
                 $_SESSION['flash'] = 'A password reset link has been sent to your email. Please check your inbox and spam folder.';
             } else {
                 // Email failed - provide the reset link directly for development/testing
-                $link = 'http://localhost/KusiNay(Capstone)/index.php?action=resetPassword&token=' . urlencode($token);
+                $link = 'https://kusinayapp.freehosting.dev/index.php?action=resetPassword&token=' . urlencode($token);
                 $_SESSION['flash'] = 'Email could not be sent. <a href="' . $link . '" style="color:var(--kn-orange);font-weight:600">Click here to reset your password directly</a>.';
             }
         } else {
@@ -705,8 +667,8 @@ class AuthController {
         }
 
         $this->userModel->updatePassword($user['user_id'], $password);
-        // Revoke all trusted devices — user must re-verify on next login
-        $this->clearTrustedDevices($user['user_id']);
+        // Revoke all trusted devices and reset first login flag — user must verify with OTP again
+        $this->userModel->revokeAllTrustedDevices($user['user_id']);
         $this->logActivity($user['user_id'], 'PASSWORD_RESET', 'Password was reset');
         $_SESSION['flash'] = 'Password updated successfully. Please log in.';
         header('Location: index.php?action=login');
@@ -746,10 +708,14 @@ class AuthController {
 
     private function redirectByRole(?string $role): void {
         $map = [
-            'Admin'              => 'index.php?action=securityLogs',
-            'Nutrition Officer II' => 'index.php?action=reportValidation',
-            'BNS Staff'          => 'index.php?action=bnsDashboard',
-            'Mother'             => 'index.php?action=home',
+            'Admin'                    => 'index.php?action=securityLogs',
+            'Nutrition Officer II'     => 'index.php?action=reportValidation',
+            'BNS Staff'                => 'index.php?action=bnsDashboard',
+            'Mother'                   => 'index.php?action=home',
+            'Committee Chair on Health'=> 'index.php?action=committeeChairDashboard',
+            'Committee Secretary'      => 'index.php?action=secretaryDashboard',
+            'Barangay Captain'         => 'index.php?action=captainDashboard',
+            'Market Vendor'            => 'index.php?action=marketVendorDashboard',
         ];
         header('Location: ' . ($map[$role] ?? 'index.php?action=home'));
         exit;

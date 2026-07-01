@@ -6,10 +6,12 @@ $total  = count($records);
 
 function nsColor(string $s): string {
     return match($s) {
-        'Low'    => '#e67e22',
-        'High'   => '#e74c3c',
-        'Normal' => '#27ae60',
-        default  => '#95a5a6',
+        'Underweight'                => '#f59e0b',  // Orange/Yellow for underweight
+        'Normal'                     => '#27ae60',  // Green for normal
+        'Overweight'                 => '#3498db',  // Blue for overweight
+        'Obese'                      => '#e74c3c',  // Red for obese
+        'N/A', ''                    => '#95a5a6',  // Gray for N/A
+        default                      => '#95a5a6',
     };
 }
 ?>

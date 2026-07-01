@@ -25,7 +25,7 @@
         *, *::before, *::after { box-sizing: border-box; }
 
         body {
-            background: #fdf0e8;
+            background: #fde8d8;
             color: var(--kn-text);
             min-height: 100vh;
             font-family: 'Segoe UI', system-ui, sans-serif;

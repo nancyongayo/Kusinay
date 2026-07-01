@@ -49,6 +49,14 @@ class FamilyWizardController {
         $stmt->execute([':uid' => $userId]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        // If user not found, redirect to login
+        if (!$user) {
+            session_unset();
+            session_destroy();
+            header('Location: index.php?action=login&reason=user_not_found');
+            exit;
+        }
+
         $healthProfile = $this->healthModel->getByUserId($userId);
         $household     = $this->householdModel->getByUserId($userId);
 
@@ -330,12 +338,22 @@ class FamilyWizardController {
 
         // Check profile is not already submitted/validated
         $stmt = $this->db->prepare("
-            SELECT profile_status FROM user_profiles WHERE user_id = :uid
+            SELECT profile_status, return_reason
+            FROM user_profiles
+            WHERE user_id = :uid
         ");
         $stmt->execute([':uid' => $userId]);
-        $existing = $stmt->fetchColumn();
+        $profileRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $existing = trim((string)($profileRow['profile_status'] ?? ''));
+        $normalizedExisting = strtoupper($existing);
+        $hasReturnReason = trim((string)($profileRow['return_reason'] ?? '')) !== '';
+        $wasPreviouslyReturned = ($normalizedExisting === 'RETURNED') || $hasReturnReason;
+        
+        // Debug: Log the existing status
+        error_log("FamilyWizardController::submitProfile - User ID: $userId, Existing Status: " . ($existing ?: 'NULL'));
+        
         // Allow resubmit if Returned (BNS sent back for correction); block if already Submitted or Validated
-        if (in_array($existing, ['Submitted', 'Validated'])) {
+        if (in_array($normalizedExisting, ['SUBMITTED', 'VALIDATED'], true)) {
             $_SESSION['flash_error'] = 'Your profile has already been submitted.';
             header('Location: index.php?action=motherWizard'); exit;
         }
@@ -366,10 +384,18 @@ class FamilyWizardController {
             $bnsCheckStmt->execute([':uid' => $userId]);
             $assignedBnsId = $bnsCheckStmt->fetchColumn();
             
-            // Auto-validate only on FIRST submission (not after BNS returned it for correction)
-            // If existing status was 'Returned', the BNS needs to re-review the corrections
-            if ($assignedBnsId && $existing !== 'Returned') {
+            // Debug: Log the auto-validation decision
+            error_log("FamilyWizardController::submitProfile - Assigned BNS ID: " . ($assignedBnsId ?: 'NULL') . ", Existing Status: " . ($existing ?: 'NULL'));
+            error_log("FamilyWizardController::submitProfile - Was previously returned: " . ($wasPreviouslyReturned ? 'YES' : 'NO'));
+            error_log("FamilyWizardController::submitProfile - Will auto-validate: " . (($assignedBnsId && !$wasPreviouslyReturned) ? 'YES' : 'NO'));
+            
+            // Auto-validate only for BNS-registered residents on FIRST submission
+            // If status was 'Returned', BNS needs to re-review the corrections (no auto-validate)
+            $newStatus = 'Submitted'; // Default: submit for BNS review
+            if ($assignedBnsId && !$wasPreviouslyReturned) {
                 // BNS-registered resident, first submission: auto-validate
+                error_log("FamilyWizardController::submitProfile - AUTO-VALIDATING for user_id=$userId");
+                $newStatus = 'Validated';
                 $this->upsertUserProfile($userId, 'Validated', [
                     'submitted_at' => date('Y-m-d H:i:s'),
                     'validated_at' => date('Y-m-d H:i:s'),
@@ -377,6 +403,7 @@ class FamilyWizardController {
                 ]);
             } else {
                 // Self-registered resident OR resubmission after Return: submit for BNS review
+                error_log("FamilyWizardController::submitProfile - SUBMITTING FOR REVIEW for user_id=$userId");
                 $this->upsertUserProfile($userId, 'Submitted', ['submitted_at' => date('Y-m-d H:i:s')]);
             }
 
@@ -426,12 +453,10 @@ class FamilyWizardController {
 
             // Notify assigned BNS (only for self-registered residents who need validation)
             $bnsStmt = $this->db->prepare("
-                SELECT assigned_bns_id, profile_status FROM user_profiles WHERE user_id = :uid
+                SELECT assigned_bns_id FROM user_profiles WHERE user_id = :uid
             ");
             $bnsStmt->execute([':uid' => $userId]);
-            $profileData = $bnsStmt->fetch(PDO::FETCH_ASSOC);
-            $bnsId = $profileData['assigned_bns_id'] ?? null;
-            $profileStatus = $profileData['profile_status'] ?? null;
+            $bnsId = $bnsStmt->fetchColumn();
             
             if ($bnsId) {
                 $profileStmt = $this->db->prepare("SELECT profile_id FROM user_profiles WHERE user_id = :uid");
@@ -441,7 +466,7 @@ class FamilyWizardController {
                 $meStmt->execute([':uid' => $userId]);
                 $me = $meStmt->fetch(PDO::FETCH_ASSOC);
                 
-                if ($profileStatus === 'Validated') {
+                if ($newStatus === 'Validated') {
                     // BNS-registered resident, first submission: auto-validated
                     $this->notifModel->create(
                         (int) $bnsId,
@@ -451,7 +476,7 @@ class FamilyWizardController {
                     );
                 } else {
                     // Self-registered OR resubmission after Return: needs BNS review
-                    $resubmit = ($existing === 'Returned');
+                    $resubmit = $wasPreviouslyReturned;
                     $this->notifModel->create(
                         (int) $bnsId,
                         'profile_submitted',
@@ -471,8 +496,7 @@ class FamilyWizardController {
         }
 
         // Different success message based on whether auto-validated or not
-        $finalStatus = $profileStatus ?? 'Submitted';
-        if ($finalStatus === 'Validated') {
+        if ($newStatus === 'Validated') {
             $_SESSION['flash'] = 'Profile completed successfully. Your account is now active!';
         } else {
             $_SESSION['flash'] = 'Profile submitted successfully. Your BNS will review it shortly.';
@@ -1234,6 +1258,29 @@ class FamilyWizardController {
             $children = $childrenStmt->fetchAll(\PDO::FETCH_ASSOC);
             $sortOrder = 10;
             foreach ($children as $child) {
+                // Check if this child already exists in family_members (prevent duplicates)
+                $dupCheck = $this->db->prepare("
+                    SELECT member_id FROM family_members
+                    WHERE family_id = ?
+                      AND role = 'Child'
+                      AND LOWER(TRIM(COALESCE(first_name,''))) = LOWER(TRIM(COALESCE(?,'')))
+                      AND LOWER(TRIM(COALESCE(last_name,''))) = LOWER(TRIM(COALESCE(?,'')))
+                      AND dob = ?
+                    LIMIT 1
+                ");
+                $dupCheck->execute([
+                    $familyId,
+                    $child['first_name'] ?? null,
+                    $child['last_name'] ?? null,
+                    $child['dob'] ?? null
+                ]);
+                
+                // Skip if child already exists
+                if ($dupCheck->fetchColumn()) {
+                    continue;
+                }
+                
+                // Insert child
                 $this->db->prepare("
                     INSERT INTO family_members (family_id, role, first_name, middle_name, last_name, suffix, sex, dob, sort_order)
                     VALUES (?, 'Child', ?, ?, ?, ?, ?, ?, ?)

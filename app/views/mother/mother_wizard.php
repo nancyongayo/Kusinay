@@ -9,6 +9,7 @@ unset($_SESSION['errors'], $_SESSION['flash_error']);
 
 $profileStatus = $user['profile_status'] ?? 'Draft';
 $readOnly      = $readOnly ?? false;
+$wasReturned   = ($profileStatus === 'Returned') || !empty($user['return_reason']);
 
 // Lookup data
 $waterSources  = $lookups['water_sources']  ?? [];
@@ -35,14 +36,14 @@ $hh = fn(string $key, $default = '') => htmlspecialchars($household[$key] ?? $de
 </div>
 <?php endif; ?>
 
-<?php if ($profileStatus === 'Returned'): ?>
+<?php if ($wasReturned): ?>
 <div class="mb-4 p-3" style="background:rgba(196,114,42,.08);border:1.5px solid rgba(196,114,42,.35);border-radius:.85rem">
     <div class="d-flex align-items-center gap-2 mb-2">
         <i class="bi bi-arrow-counterclockwise fs-5" style="color:var(--kn-orange)"></i>
         <strong style="color:var(--kn-orange)">Profile Returned for Correction</strong>
     </div>
     <p class="mb-2" style="font-size:.9rem;color:var(--kn-dark)">
-        Your BNS reviewed your profile and found issues that need to be corrected. Please update the information below and resubmit.
+        Your BNS reviewed your profile and found issues that need to be corrected. Please update the information below and click <strong>"Resubmit for Validation"</strong> when done.
     </p>
     <?php if (!empty($user['return_reason'])): ?>
     <div style="background:rgba(196,114,42,.06);border-left:3px solid var(--kn-orange);padding:.6rem .9rem;border-radius:0 6px 6px 0;font-size:.9rem">
@@ -720,12 +721,20 @@ $hh = fn(string $key, $default = '') => htmlspecialchars($household[$key] ?? $de
             <i class="bi bi-arrow-left me-1"></i> Back
         </button>
         <div class="d-flex gap-2">
-            <button type="submit" formaction="index.php?action=saveWizardDraft" class="btn-kn-draft">
-                <i class="bi bi-floppy-fill me-1"></i> Save Draft
-            </button>
-            <button type="submit" formaction="index.php?action=submitWizardProfile" class="btn-kn-submit">
-                <i class="bi bi-send-fill me-1"></i> Submit Profile
-            </button>
+            <?php if ($wasReturned): ?>
+                <!-- Returned profile: Show only Resubmit button with clear message -->
+                <button type="submit" formaction="index.php?action=submitWizardProfile" class="btn-kn-submit">
+                    <i class="bi bi-arrow-repeat me-1"></i> Resubmit for Validation
+                </button>
+            <?php else: ?>
+                <!-- Draft profile: Show both Save Draft and Submit buttons -->
+                <button type="submit" formaction="index.php?action=saveWizardDraft" class="btn-kn-draft">
+                    <i class="bi bi-floppy-fill me-1"></i> Save Draft
+                </button>
+                <button type="submit" formaction="index.php?action=submitWizardProfile" class="btn-kn-submit">
+                    <i class="bi bi-send-fill me-1"></i> Submit Profile
+                </button>
+            <?php endif; ?>
         </div>
     </div>
     <?php endif; ?>

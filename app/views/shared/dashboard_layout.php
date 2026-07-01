@@ -25,7 +25,7 @@ unset($_SESSION['flash']);
             --kn-cream  : #F5EDD6;
             --kn-dark   : #3D4A1E;
         }
-        body { background: #fdf0e8; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: #fde8d8; font-family: 'Segoe UI', system-ui, sans-serif; }
         .navbar-kn { background: var(--kn-green); }
         .navbar-kn .navbar-brand, .navbar-kn .nav-link, .navbar-kn .navbar-text {
             color: var(--kn-cream) !important;

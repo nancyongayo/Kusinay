@@ -16,8 +16,9 @@ $userName    = $_SESSION['user_name'] ?? 'BNS Staff';
 $pageTitle   = $pageTitle ?? 'Dashboard';
 $activeNav   = $activeNav ?? 'dashboard';
 $flash       = $_SESSION['flash'] ?? null;
+$flashError  = $_SESSION['flash_error'] ?? null;
 $formErrors  = $_SESSION['errors'] ?? [];
-unset($_SESSION['flash'], $_SESSION['errors']);
+unset($_SESSION['flash'], $_SESSION['flash_error'], $_SESSION['errors']);
 
 $_notifModel = new NotificationModel(getDBConnection());
 $unreadCount = $_notifModel->getUnreadCount($_SESSION['user_id']);
@@ -29,6 +30,8 @@ $nav = [
     ['key'=>'validation',      'label'=>'Profile Validation','icon'=>'bi-patch-check-fill', 'url'=>'index.php?action=bnsValidationList'],
     ['key'=>'data_encoding',   'label'=>'Resident Assessment',  'icon'=>'bi-clipboard2-data', 'url'=>'index.php?action=dataEncoding'],
     ['key'=>'nutrition_education', 'label'=>'Nutrition Education', 'icon'=>'bi-book-fill', 'url'=>'index.php?action=nutritionEducationList'],
+    ['key'=>'feeding_program', 'label'=>'Feeding Programs',  'icon'=>'bi-heart-pulse-fill', 'url'=>'index.php?action=feedingProgramList'],
+    ['key'=>'meal_plans',      'label'=>'Meal Plans',        'icon'=>'bi-journal-richtext', 'url'=>'index.php?action=bnsMealPlansList'],
     ['key'=>'accomplishment',  'label'=>'Monthly Report',     'icon'=>'bi-file-earmark-text','url'=>'index.php?action=accomplishmentReport'],
     ['key'=>'notifications',   'label'=>'Notifications',     'icon'=>'bi-bell-fill',       'url'=>'index.php?action=notifications', 'badge'=>$unreadCount],
     ['key'=>'settings',        'label'=>'Profile Settings',  'icon'=>'bi-gear-fill',       'url'=>'index.php?action=bnsSettings'],
@@ -111,6 +114,15 @@ $nav = [
 <div class="kn-flash">
     <div class="alert alert-success alert-dismissible fade show mb-0">
         <i class="bi bi-check-circle-fill me-2"></i><?= htmlspecialchars($flash) ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if ($flashError): ?>
+<div class="kn-flash">
+    <div class="alert alert-danger alert-dismissible fade show mb-0">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i><?= htmlspecialchars($flashError) ?>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
 </div>

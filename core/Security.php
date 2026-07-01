@@ -74,9 +74,10 @@ class Security {
         'saveWizardDraft'      => ['Admin', 'Mother'],
         'submitWizardProfile'  => ['Admin', 'Mother'],
         'upcomingSessions'     => ['Admin', 'Mother'],
-        'notifications'        => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II'],
-        'markNotificationRead' => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II'],
-        'deleteNotification'   => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II'],
+        'notifications'        => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'Market Vendor'],
+        'markNotificationRead' => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'Market Vendor'],
+        'deleteNotification'   => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'Market Vendor'],
+        'notificationBadge'    => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'Market Vendor'],
         'confirmFamilyLink'    => ['Admin', 'Mother'],
         'rejectFamilyLink'     => ['Admin', 'Mother'],
         // BNS Resident Registration
@@ -84,8 +85,148 @@ class Security {
         'listResidents'        => ['BNS Staff'],
         'resendCredentials'    => ['BNS Staff'],
         // Force password change — accessible to any authenticated role
-        'forceChangePassword'  => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II'],
-        'doForceChangePassword'=> ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II'],
+        'forceChangePassword'  => ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'Market Vendor'],
+        'doForceChangePassword'=> ['Admin', 'BNS Staff', 'Mother', 'Nutrition Officer II', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'Market Vendor'],
+        // Process 12: Nutrition Risk (BNS)
+        'affectedChildren'     => ['Admin', 'BNS Staff'],
+        // Process 13: Feeding Program Planning (Committee Chair + Secretary)
+        'committeeChairDashboard' => ['Admin', 'Committee Chair on Health'],
+        'proposalForm'         => ['Admin', 'Committee Chair on Health'],
+        'saveProposal'         => ['Admin', 'Committee Chair on Health'],
+        'viewProposal'         => ['Admin', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain', 'BNS Staff'],
+        'submitProposal'       => ['Admin', 'Committee Chair on Health'],
+        'deleteProposal'       => ['Admin', 'Committee Chair on Health'],
+        'secretaryDashboard'   => ['Admin', 'Committee Secretary'],
+        'minutesForm'          => ['Admin', 'Committee Secretary'],
+        'saveMeetingMinutes'   => ['Admin', 'Committee Secretary'],
+        // Process 14: Proposal Validation (Barangay Captain)
+        'captainDashboard'     => ['Admin', 'Barangay Captain'],
+        'validationForm'       => ['Admin', 'Barangay Captain'],
+        'submitValidation'     => ['Admin', 'Barangay Captain'],
+        // Market Vendor
+        'marketVendorDashboard'=> ['Admin', 'Market Vendor'],
+        'vendorProducts'       => ['Admin', 'Market Vendor'],
+        'vendorGroceryLists'   => ['Admin', 'Market Vendor'],
+        // Process 17: Recovery Validation (Nutrition Officer II + BNS read-only)
+        'recoveryValidation'       => ['Admin', 'Nutrition Officer II'],
+        'recoveryEligibleList'     => ['Admin', 'Nutrition Officer II'],
+        'recoveryValidationForm'   => ['Admin', 'Nutrition Officer II'],
+        'saveRecoveryValidation'   => ['Admin', 'Nutrition Officer II'],
+        'recoveryValidationList'   => ['Admin', 'Nutrition Officer II'],
+        'recoveryValidationDetail' => ['Admin', 'Nutrition Officer II'],
+        'recoveryStatistics'       => ['Admin', 'Nutrition Officer II'],
+        'deleteRecoveryValidation' => ['Admin', 'Nutrition Officer II'],
+        'bnsRecoveryStatus'        => ['Admin', 'BNS Staff'],
+        
+        // Process 15-16: Feeding Program Execution & Attendance
+        'feedingProgramList'       => ['Admin', 'BNS Staff'],
+        'feedingSessions'          => ['Admin', 'BNS Staff'],
+        'feedingSessionForm'       => ['Admin', 'BNS Staff'],
+        'saveFeedingSession'       => ['Admin', 'BNS Staff'],
+        'deleteFeedingSession'     => ['Admin', 'BNS Staff'],
+        'bulkSessionForm'          => ['Admin', 'BNS Staff'],
+        'saveBulkSessions'         => ['Admin', 'BNS Staff'],
+        'sessionAttendance'        => ['Admin', 'BNS Staff'],
+        'feedingAttendance'        => ['Admin', 'BNS Staff'],
+        'saveFeedingAttendance'    => ['Admin', 'BNS Staff'],
+        'deleteFeedingAttendance'  => ['Admin', 'BNS Staff'],
+        'attendanceReport'         => ['Admin', 'BNS Staff'],
+        'qrScanner'                => ['Admin', 'BNS Staff'],
+        'sessionQRCode'            => ['Admin', 'BNS Staff'],
+        'generateQRCodes'          => ['Admin', 'BNS Staff'],
+        'markQRAttendance'         => ['Admin', 'BNS Staff'],
+        'sessionRSVPList'          => ['Admin', 'BNS Staff'],
+        'respondToRSVP'            => ['Admin', 'BNS Staff', 'Mother'],
+        'markAttendance'           => ['Admin', 'BNS Staff'],
+        
+        // Parent/Mother Feeding Program Dashboard
+        'feedingDashboard'         => ['Admin', 'Mother'],
+        'feedingAttendanceHistory' => ['Admin', 'Mother'],
+        
+        // Process 18: Meal Plans (BNS creates, Mother views)
+        'bnsMealPlansList'         => ['Admin', 'BNS Staff'],
+        'bnsMealPlanView'          => ['Admin', 'BNS Staff'],
+        'bnsMealPlanForm'          => ['Admin', 'BNS Staff'],
+        'saveMealPlan'             => ['Admin', 'BNS Staff'],
+        'addMealItem'              => ['Admin', 'BNS Staff'],
+        'deleteMealItem'           => ['Admin', 'BNS Staff'],
+        'deleteMealPlan'           => ['Admin', 'BNS Staff'],
+        'mealPlansList'            => ['Admin', 'Mother'],
+        'mealPlanView'             => ['Admin', 'Mother'],
+        'markMealPlanCompleted'    => ['Admin', 'Mother'],
+        'markMealConsumed'         => ['Admin', 'Mother'],
+        'dietPlansList'            => ['Admin', 'BNS Staff', 'Mother'],
+        'viewDietPlan'             => ['Admin', 'BNS Staff', 'Mother'],
+        
+        // Process 19: Grocery Lists (Mother)
+        'groceryMode'              => ['Admin', 'Mother'],
+        'supermarket'              => ['Admin', 'Mother'],
+        'wetMarket'                => ['Admin', 'Mother'],
+        'groceryLists'             => ['Admin', 'Mother'],
+        'groceryListForm'          => ['Admin', 'Mother'],
+        'saveGroceryList'          => ['Admin', 'Mother'],
+        'generateFromMealPlan'     => ['Admin', 'Mother'],
+        'shopFromMealPlan'         => ['Admin', 'Mother'],
+        'shopGroceryListOnline'    => ['Admin', 'Mother'],
+        'addGroceryItem'           => ['Admin', 'Mother'],
+        'updateGroceryItem'        => ['Admin', 'Mother'],
+        'markItemPurchased'        => ['Admin', 'Mother'],
+        'unmarkItemPurchased'      => ['Admin', 'Mother'],
+        'deleteGroceryItem'        => ['Admin', 'Mother'],
+        'deleteGroceryList'        => ['Admin', 'Mother'],
+        'markListCompleted'        => ['Admin', 'Mother'],
+        
+        // Process 20: Market Vendor - Selling Goods
+        'vendorProductForm'        => ['Admin', 'Market Vendor'],
+        'saveProduct'              => ['Admin', 'Market Vendor'],
+        'deleteProduct'            => ['Admin', 'Market Vendor'],
+        'toggleProductAvailability'=> ['Admin', 'Market Vendor'],
+        'vendorOrders'             => ['Admin', 'Market Vendor'],
+        'vendorOrderDetail'        => ['Admin', 'Market Vendor'],
+        'updateOrderStatus'        => ['Admin', 'Market Vendor'],
+        'vendorSalesReports'       => ['Admin', 'Market Vendor'],
+        
+        // Process 21-22: Pantry Management (Mother)
+        'pantry'                   => ['Admin', 'Mother'],
+        'addPantryItem'            => ['Admin', 'Mother'],
+        'updatePantryQuantity'     => ['Admin', 'Mother'],
+        'deletePantryItem'         => ['Admin', 'Mother'],
+        'consumePantryItem'        => ['Admin', 'Mother'],
+        'pantryHistory'            => ['Admin', 'Mother'],
+        
+        // Shopping Cart & Checkout (Process 19 - Online Purchase)
+        'addToCart'                => ['Admin', 'Mother'],
+        'viewCart'                 => ['Admin', 'Mother'],
+        'updateCartQuantity'       => ['Admin', 'Mother'],
+        'removeCartItem'           => ['Admin', 'Mother'],
+        'getCartCount'             => ['Admin', 'Mother'],
+        'showCheckout'             => ['Admin', 'Mother'],
+        'processCheckout'          => ['Admin', 'Mother'],
+        'paymentSuccess'           => ['Admin', 'Mother'],
+        'paymentCancelled'         => ['Admin', 'Mother'],
+        'orderConfirmation'        => ['Admin', 'Mother'],
+        'myOrders'                 => ['Admin', 'Mother'],
+        
+        // Additional missing routes
+        'p12MonitoringAll'         => ['Admin', 'BNS Staff'],
+        'saveFollowUp'             => ['Admin', 'BNS Staff'],
+        'previewAssessment'        => ['Admin', 'BNS Staff'],
+        'uploadAttachment'         => ['Admin', 'BNS Staff'],
+        'deleteAttachment'         => ['Admin', 'BNS Staff'],
+        'chairMinutesList'         => ['Admin', 'Committee Chair on Health'],
+        'reviewAffectedChildren'   => ['Admin', 'BNS Staff'],
+        'printProposal'            => ['Admin', 'Committee Chair on Health', 'Committee Secretary', 'Barangay Captain'],
+        'printMinutes'             => ['Admin', 'Committee Secretary'],
+        'viewMinutes'              => ['Admin', 'Committee Secretary', 'Committee Chair on Health'],
+        'markMinutesReviewed'      => ['Admin', 'Committee Secretary'],
+        'rsvpSession'              => ['Admin', 'Mother'],
+        'sessionRsvpList'          => ['Admin', 'BNS Staff'],
+        'uploadMaterial'           => ['Admin', 'BNS Staff'],
+        'downloadMaterial'         => ['Admin', 'BNS Staff', 'Mother'],
+        'deleteMaterial'           => ['Admin', 'BNS Staff'],
+        'bnsSettings'              => ['Admin', 'BNS Staff'],
+        'saveBnsLocation'          => ['Admin', 'BNS Staff'],
+        'searchUsers'              => ['Admin', 'Mother'],
     ];
 
     /**
@@ -101,6 +242,8 @@ class Security {
             'doVerifyOtp', 'doForgotPwd', 'doResetPwd', 'resendOtp',
             'roleSelection', 'doRoleSelection', 'saveRoleSelection',
             'setupAccount', 'doSetupAccount',
+            // QR Attendance - Public access for parents without accounts
+            'attendViaQR', 'submitAttendanceViaQR',
         ];
         if (in_array($action, $publicRoutes, true)) {
             return;
@@ -337,3 +480,4 @@ HTML;
 HTML;
     }
 }
+} // End class guard

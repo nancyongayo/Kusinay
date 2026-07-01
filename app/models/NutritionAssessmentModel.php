@@ -90,6 +90,7 @@ class NutritionAssessmentModel {
                 UNION ALL
 
                 -- Source 2: Children added by BNS directly in family profiles (family_members)
+                -- EXCLUDE children that already exist in household_children for the same family
                 SELECT
                     NULL AS child_id,
                     fm.member_id AS fm_member_id,
@@ -124,6 +125,17 @@ class NutritionAssessmentModel {
                   AND fm.dob IS NOT NULL
                   AND TIMESTAMPDIFF(MONTH, fm.dob, CURDATE()) BETWEEN 0 AND 59
                   AND (TRIM(COALESCE(fm.first_name,'')) != '' OR TRIM(COALESCE(fm.last_name,'')) != '')
+                  -- Anti-duplicate filter: exclude if same child exists in household_children
+                  AND NOT EXISTS (
+                      SELECT 1 FROM household_children hc2
+                      JOIN households h2 ON h2.household_id = hc2.household_id
+                      JOIN household_members hm2 ON hm2.household_id = h2.household_id
+                      JOIN family_profiles fp2 ON fp2.source_user_id = hm2.user_id
+                      WHERE fp2.family_id = fp.family_id
+                        AND LOWER(TRIM(hc2.first_name)) = LOWER(TRIM(fm.first_name))
+                        AND LOWER(TRIM(hc2.last_name)) = LOWER(TRIM(fm.last_name))
+                        AND hc2.dob = fm.dob
+                  )
 
             ) AS combined
             ORDER BY purok, full_name
@@ -210,6 +222,7 @@ class NutritionAssessmentModel {
 
         // ── SOURCE 3: BNS-encoded female member marked as pregnant (is_mother_prog = 1) ──
         // Joins on sex='F' so it works whether the female is the Head or the Spouse
+        // Now pulls the actual pregnancy status with trimester from family_profiles.wife_pregnancy_status
         $stmt3 = $this->db->prepare("
             SELECT
                 NULL AS user_id,
@@ -222,8 +235,8 @@ class NutritionAssessmentModel {
                 fm_female.sex,
                 fm_female.dob,
                 TIMESTAMPDIFF(YEAR, fm_female.dob, CURDATE()) AS age_in_years,
-                'Pregnant' AS pregnancy_status,
-                NULL AS breastfeeding_status,
+                COALESCE(fp.wife_pregnancy_status, 'Pregnant 2nd Trimester') AS pregnancy_status,
+                fp.wife_breastfeeding_status AS breastfeeding_status,
                 fp.purok,
                 fp.hh_number,
                 (SELECT MAX(na.assessment_date)
@@ -247,7 +260,69 @@ class NutritionAssessmentModel {
         $stmt3->execute([':bns' => $bnsId, ':bns2' => $bnsId]);
         $fromPregnant = $stmt3->fetchAll(PDO::FETCH_ASSOC);
 
-        // Merge — registered users first, then BNS-only wives
+        // ── SOURCE 4: Wives entered by male users in households table (no account) ──
+        // When a father creates a family profile, he enters his wife's pregnancy/breastfeeding status
+        // in the households.spouse_pregnancy_status and spouse_breastfeeding_status fields
+        // Try to find wife's DOB from family_members if BNS created a family profile
+        $stmt4 = $this->db->prepare("
+            SELECT
+                NULL AS user_id,
+                fm_wife.member_id AS fm_member_id,
+                TRIM(CONCAT(
+                    COALESCE(h.spouse_last_name, ''), ', ',
+                    COALESCE(h.spouse_first_name, ''),
+                    IF(h.spouse_middle_name IS NOT NULL AND h.spouse_middle_name != '', CONCAT(' ', h.spouse_middle_name), ''),
+                    IF(h.spouse_suffix IS NOT NULL AND h.spouse_suffix != '', CONCAT(' ', h.spouse_suffix), '')
+                )) AS full_name,
+                'F' AS sex,
+                fm_wife.dob AS dob,
+                CASE 
+                    WHEN fm_wife.dob IS NOT NULL THEN TIMESTAMPDIFF(YEAR, fm_wife.dob, CURDATE())
+                    ELSE NULL 
+                END AS age_in_years,
+                h.spouse_pregnancy_status AS pregnancy_status,
+                h.spouse_breastfeeding_status AS breastfeeding_status,
+                h.purok,
+                COALESCE(fp.hh_number, '') AS hh_number,
+                CASE 
+                    WHEN fm_wife.member_id IS NOT NULL THEN (
+                        SELECT MAX(na.assessment_date)
+                        FROM nutrition_assessments na
+                        WHERE na.fm_member_id = fm_wife.member_id
+                    )
+                    ELSE NULL 
+                END AS last_assessed
+            FROM households h
+            JOIN household_members hm ON hm.household_id = h.household_id
+            JOIN users u ON u.user_id = hm.user_id
+            JOIN user_profiles up ON up.user_id = u.user_id
+            LEFT JOIN family_profiles fp ON fp.source_user_id = u.user_id
+            LEFT JOIN family_members fm_wife ON fm_wife.family_id = fp.family_id 
+                AND fm_wife.role = 'Wife'
+                AND LOWER(TRIM(fm_wife.first_name)) = LOWER(TRIM(h.spouse_first_name))
+                AND LOWER(TRIM(fm_wife.last_name)) = LOWER(TRIM(h.spouse_last_name))
+            WHERE up.assigned_bns_id = :bns
+              AND up.profile_status = 'Validated'
+              AND u.gender = 'Male'
+              AND (
+                h.spouse_pregnancy_status IN ('Pregnant 1st Trimester','Pregnant 2nd Trimester','Pregnant 3rd Trimester')
+                OR h.spouse_breastfeeding_status IN ('Exclusively Breastfeeding','Mixed Feeding')
+              )
+              AND (h.spouse_first_name IS NOT NULL OR h.spouse_last_name IS NOT NULL)
+              -- Exclude if wife has her own account (already in SOURCE 1)
+              AND NOT EXISTS (
+                  SELECT 1 FROM users u_wife
+                  JOIN user_profiles up_wife ON up_wife.user_id = u_wife.user_id
+                  WHERE LOWER(TRIM(u_wife.first_name)) = LOWER(TRIM(h.spouse_first_name))
+                    AND LOWER(TRIM(u_wife.last_name)) = LOWER(TRIM(h.spouse_last_name))
+                    AND up_wife.profile_status = 'Validated'
+                    AND up_wife.assigned_bns_id = :bns2
+              )
+        ");
+        $stmt4->execute([':bns' => $bnsId, ':bns2' => $bnsId]);
+        $fromSpouses = $stmt4->fetchAll(PDO::FETCH_ASSOC);
+
+        // Merge — registered users first, then BNS-only wives, then household spouses
         $seen = [];
         $results = [];
         foreach ($fromUsers as $r) {
@@ -265,6 +340,13 @@ class NutritionAssessmentModel {
             if ($r['user_id'] && isset($seen['u_' . $r['user_id']])) continue;
             // Deduplicate by fm_member_id (avoid showing same wife twice if both EBF and pregnant)
             $key = 'fm_' . $r['fm_member_id'];
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $results[] = $r;
+        }
+        foreach ($fromSpouses as $r) {
+            // Deduplicate by name (avoid showing same wife twice)
+            $key = 'spouse_' . strtolower(trim($r['full_name']));
             if (isset($seen[$key])) continue;
             $seen[$key] = true;
             $results[] = $r;
@@ -426,42 +508,75 @@ class NutritionAssessmentModel {
     public function getFormC(int $bnsId, ?string $year = null): array {
         $year = $year ?? date('Y');
         $stmt = $this->db->prepare("
-            SELECT na.*,
-                   YEAR(na.assessment_date) AS yr
-            FROM nutrition_assessments na
-            WHERE na.bns_id = :bns
-              AND na.assessed_type = 'child'
-              AND na.is_at_risk = 1
-              AND YEAR(na.assessment_date) = :year
-            ORDER BY na.purok, na.full_name
+            SELECT latest_na.*,
+                   YEAR(latest_na.assessment_date) AS yr
+            FROM (
+                -- Get only the LATEST assessment per child
+                SELECT na1.*
+                FROM nutrition_assessments na1
+                INNER JOIN (
+                    SELECT 
+                        COALESCE(child_id, fm_member_id, CONCAT(full_name, dob)) as child_key,
+                        MAX(assessment_date) as max_date,
+                        MAX(assessment_id) as max_id
+                    FROM nutrition_assessments
+                    WHERE assessed_type = 'child'
+                      AND bns_id = :bns1
+                    GROUP BY child_key
+                ) na2 ON COALESCE(na1.child_id, na1.fm_member_id, CONCAT(na1.full_name, na1.dob)) = na2.child_key 
+                     AND na1.assessment_date = na2.max_date
+                     AND na1.assessment_id = na2.max_id
+                WHERE na1.assessed_type = 'child'
+                  AND na1.bns_id = :bns2
+            ) latest_na
+            WHERE latest_na.is_at_risk = 1
+              AND YEAR(latest_na.assessment_date) = :year
+            ORDER BY latest_na.purok, latest_na.full_name
         ");
-        $stmt->execute([':bns' => $bnsId, ':year' => $year]);
+        $stmt->execute([':bns1' => $bnsId, ':bns2' => $bnsId, ':year' => $year]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**
      * Summary counts for Form C header (MUW, MSt, MW/MAM, SUW, SSt, SW/SAM, OW, Ob).
+     * Only counts children whose LATEST assessment shows at-risk status
      */
     public function getFormCSummary(int $bnsId, ?string $year = null): array {
         $year = $year ?? date('Y');
         $stmt = $this->db->prepare("
             SELECT
-                SUM(wfa_status = 'UW')     AS MUW,
-                SUM(hfa_status = 'St')     AS MSt,
-                SUM(wfh_status = 'MAM')    AS MAM,
-                SUM(wfa_status = 'SUW')    AS SUW,
-                SUM(hfa_status = 'SSt')    AS SSt,
-                SUM(wfh_status = 'SAM')    AS SAM,
-                SUM(wfh_status = 'OW')     AS OW,
-                SUM(wfh_status = 'Ob')     AS Ob,
-                COUNT(*)                   AS total
-            FROM nutrition_assessments
-            WHERE bns_id = :bns
-              AND assessed_type = 'child'
-              AND is_at_risk = 1
-              AND YEAR(assessment_date) = :year
+                SUM(latest_na.wfa_status = 'UW')     AS MUW,
+                SUM(latest_na.hfa_status = 'St')     AS MSt,
+                SUM(latest_na.wfh_status = 'MAM')    AS MAM,
+                SUM(latest_na.wfa_status = 'SUW')    AS SUW,
+                SUM(latest_na.hfa_status = 'SSt')    AS SSt,
+                SUM(latest_na.wfh_status = 'SAM')    AS SAM,
+                SUM(latest_na.wfh_status = 'OW')     AS OW,
+                SUM(latest_na.wfh_status = 'Ob')     AS Ob,
+                COUNT(*)                             AS total
+            FROM (
+                -- Get only the LATEST assessment per child
+                SELECT na1.*
+                FROM nutrition_assessments na1
+                INNER JOIN (
+                    SELECT 
+                        COALESCE(child_id, fm_member_id, CONCAT(full_name, dob)) as child_key,
+                        MAX(assessment_date) as max_date,
+                        MAX(assessment_id) as max_id
+                    FROM nutrition_assessments
+                    WHERE assessed_type = 'child'
+                      AND bns_id = :bns1
+                    GROUP BY child_key
+                ) na2 ON COALESCE(na1.child_id, na1.fm_member_id, CONCAT(na1.full_name, na1.dob)) = na2.child_key 
+                     AND na1.assessment_date = na2.max_date
+                     AND na1.assessment_id = na2.max_id
+                WHERE na1.assessed_type = 'child'
+                  AND na1.bns_id = :bns2
+            ) latest_na
+            WHERE latest_na.is_at_risk = 1
+              AND YEAR(latest_na.assessment_date) = :year
         ");
-        $stmt->execute([':bns' => $bnsId, ':year' => $year]);
+        $stmt->execute([':bns1' => $bnsId, ':bns2' => $bnsId, ':year' => $year]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
@@ -469,6 +584,7 @@ class NutritionAssessmentModel {
 
     /**
      * Get monitoring list filtered by a WHERE clause on nutrition_assessments.
+     * Only shows children whose LATEST assessment matches the filter criteria.
      * $filter examples:
      *   "age_in_months BETWEEN 0 AND 23"
      *   "wfh_status = 'MAM'"
@@ -477,27 +593,43 @@ class NutritionAssessmentModel {
     public function getMonitoringList(int $bnsId, string $filter, ?string $year = null): array {
         $year = $year ?? date('Y');
         $stmt = $this->db->prepare("
-            SELECT na.*,
+            SELECT latest_na.*,
                    mv1.visit_date AS v1_date, mv1.intervention_done AS v1_int, mv1.nutritional_status AS v1_status,
                    mv2.visit_date AS v2_date, mv2.intervention_done AS v2_int, mv2.nutritional_status AS v2_status,
                    mv3.visit_date AS v3_date, mv3.intervention_done AS v3_int, mv3.nutritional_status AS v3_status,
                    mv4.visit_date AS v4_date, mv4.intervention_done AS v4_int, mv4.nutritional_status AS v4_status,
                    mv5.visit_date AS v5_date, mv5.intervention_done AS v5_int, mv5.nutritional_status AS v5_status,
                    mv6.visit_date AS v6_date, mv6.intervention_done AS v6_int, mv6.nutritional_status AS v6_status
-            FROM nutrition_assessments na
-            LEFT JOIN monitoring_visits mv1 ON mv1.assessment_id = na.assessment_id AND mv1.visit_month_number = 1
-            LEFT JOIN monitoring_visits mv2 ON mv2.assessment_id = na.assessment_id AND mv2.visit_month_number = 2
-            LEFT JOIN monitoring_visits mv3 ON mv3.assessment_id = na.assessment_id AND mv3.visit_month_number = 3
-            LEFT JOIN monitoring_visits mv4 ON mv4.assessment_id = na.assessment_id AND mv4.visit_month_number = 4
-            LEFT JOIN monitoring_visits mv5 ON mv5.assessment_id = na.assessment_id AND mv5.visit_month_number = 5
-            LEFT JOIN monitoring_visits mv6 ON mv6.assessment_id = na.assessment_id AND mv6.visit_month_number = 6
-            WHERE na.bns_id = :bns
-              AND na.assessed_type = 'child'
-              AND YEAR(na.assessment_date) = :year
+            FROM (
+                -- Get only the LATEST assessment per child
+                SELECT na1.*
+                FROM nutrition_assessments na1
+                INNER JOIN (
+                    SELECT 
+                        COALESCE(child_id, fm_member_id, CONCAT(full_name, dob)) as child_key,
+                        MAX(assessment_date) as max_date,
+                        MAX(assessment_id) as max_id
+                    FROM nutrition_assessments
+                    WHERE assessed_type = 'child'
+                      AND bns_id = :bns1
+                    GROUP BY child_key
+                ) na2 ON COALESCE(na1.child_id, na1.fm_member_id, CONCAT(na1.full_name, na1.dob)) = na2.child_key 
+                     AND na1.assessment_date = na2.max_date
+                     AND na1.assessment_id = na2.max_id
+                WHERE na1.assessed_type = 'child'
+                  AND na1.bns_id = :bns2
+            ) latest_na
+            LEFT JOIN monitoring_visits mv1 ON mv1.assessment_id = latest_na.assessment_id AND mv1.visit_month_number = 1
+            LEFT JOIN monitoring_visits mv2 ON mv2.assessment_id = latest_na.assessment_id AND mv2.visit_month_number = 2
+            LEFT JOIN monitoring_visits mv3 ON mv3.assessment_id = latest_na.assessment_id AND mv3.visit_month_number = 3
+            LEFT JOIN monitoring_visits mv4 ON mv4.assessment_id = latest_na.assessment_id AND mv4.visit_month_number = 4
+            LEFT JOIN monitoring_visits mv5 ON mv5.assessment_id = latest_na.assessment_id AND mv5.visit_month_number = 5
+            LEFT JOIN monitoring_visits mv6 ON mv6.assessment_id = latest_na.assessment_id AND mv6.visit_month_number = 6
+            WHERE YEAR(latest_na.assessment_date) = :year
               AND ($filter)
-            ORDER BY na.purok, na.full_name
+            ORDER BY latest_na.purok, latest_na.full_name
         ");
-        $stmt->execute([':bns' => $bnsId, ':year' => $year]);
+        $stmt->execute([':bns1' => $bnsId, ':bns2' => $bnsId, ':year' => $year]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -509,23 +641,34 @@ class NutritionAssessmentModel {
         $monthStart = ($quarter - 1) * 3 + 1;
         $monthEnd   = $monthStart + 2;
         
-        // ── SOURCE 1: Registered users assessed this quarter ─────────────────
+        // ── SOURCE 1: ALL assessed maternal (registered users + BNS-encoded family members) ──
         $stmt = $this->db->prepare("
-            SELECT DISTINCT na.user_id,
-                   u.first_name, u.middle_name, u.last_name,
-                   u.contact, u.civil_status,
-                   h.spouse_name,
-                   na.purok,
-                   NULL AS fm_member_id
+            SELECT DISTINCT 
+                   na.user_id,
+                   na.fm_member_id,
+                   COALESCE(u.first_name, na.full_name) AS first_name,
+                   COALESCE(u.middle_name, '') AS middle_name,
+                   COALESCE(u.last_name, '') AS last_name,
+                   COALESCE(u.contact, '') AS contact,
+                   COALESCE(u.civil_status, fm.civil_status, '') AS civil_status,
+                   COALESCE(h.spouse_name, 
+                            (SELECT CONCAT(fm_spouse.last_name, ', ', fm_spouse.first_name)
+                             FROM family_members fm_spouse
+                             WHERE fm_spouse.family_id = fm.family_id
+                               AND fm_spouse.role IN ('Head','Wife')
+                               AND fm_spouse.member_id != fm.member_id
+                             LIMIT 1), '') AS spouse_name,
+                   na.purok
             FROM nutrition_assessments na
-            JOIN users u ON u.user_id = na.user_id
+            LEFT JOIN users u ON u.user_id = na.user_id
+            LEFT JOIN family_members fm ON fm.member_id = na.fm_member_id
             LEFT JOIN household_members hm ON hm.user_id = na.user_id
             LEFT JOIN households h ON h.household_id = hm.household_id
             WHERE na.bns_id = :bns
               AND na.assessed_type = 'maternal'
               AND YEAR(na.assessment_date) = :year
               AND MONTH(na.assessment_date) BETWEEN :ms AND :me
-            ORDER BY na.purok, u.last_name, u.first_name
+            ORDER BY na.purok, last_name, first_name
         ");
         $stmt->execute([':bns' => $bnsId, ':year' => $year, ':ms' => $monthStart, ':me' => $monthEnd]);
         $assessed = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -565,14 +708,13 @@ class NutritionAssessmentModel {
         // Merge both sources
         $women = array_merge($assessed, $unassessed);
         
-        // For each woman, get up to 3 assessments (one per month in the quarter)
+        // For each woman, get ALL assessments in the quarter
         $results = [];
         foreach ($women as $woman) {
             if ($woman['user_id']) {
                 // Registered user — look up by user_id
                 $assessStmt = $this->db->prepare("
-                    SELECT na.*,
-                           MONTH(na.assessment_date) - ? + 1 AS month_num
+                    SELECT na.*
                     FROM nutrition_assessments na
                     WHERE na.user_id = ?
                       AND na.bns_id = ?
@@ -580,14 +722,12 @@ class NutritionAssessmentModel {
                       AND YEAR(na.assessment_date) = ?
                       AND MONTH(na.assessment_date) BETWEEN ? AND ?
                     ORDER BY na.assessment_date ASC
-                    LIMIT 3
                 ");
-                $assessStmt->execute([$monthStart, $woman['user_id'], $bnsId, $year, $monthStart, $monthEnd]);
+                $assessStmt->execute([$woman['user_id'], $bnsId, $year, $monthStart, $monthEnd]);
             } elseif ($woman['fm_member_id']) {
                 // BNS-only wife — look up by fm_member_id
                 $assessStmt = $this->db->prepare("
-                    SELECT na.*,
-                           MONTH(na.assessment_date) - ? + 1 AS month_num
+                    SELECT na.*
                     FROM nutrition_assessments na
                     WHERE na.fm_member_id = ?
                       AND na.bns_id = ?
@@ -595,15 +735,17 @@ class NutritionAssessmentModel {
                       AND YEAR(na.assessment_date) = ?
                       AND MONTH(na.assessment_date) BETWEEN ? AND ?
                     ORDER BY na.assessment_date ASC
-                    LIMIT 3
                 ");
-                $assessStmt->execute([$monthStart, $woman['fm_member_id'], $bnsId, $year, $monthStart, $monthEnd]);
+                $assessStmt->execute([$woman['fm_member_id'], $bnsId, $year, $monthStart, $monthEnd]);
             } else {
                 continue;
             }
             $assessments = $assessStmt->fetchAll(PDO::FETCH_ASSOC);
             
-            // Build record with all woman's data plus 3 months of assessments
+            // Skip if no assessments
+            if (empty($assessments)) continue;
+            
+            // Build record with all woman's data plus 3 trimesters of assessments
             $record = array_merge($woman, [
                 'dob'        => $assessments[0]['dob']        ?? null,
                 'lmp'        => $assessments[0]['lmp']        ?? null,
@@ -613,12 +755,31 @@ class NutritionAssessmentModel {
                 'is_4ps'     => $assessments[0]['is_4ps']     ?? null,
             ]);
             
-            // Add data for each month
+            // Map assessments to correct trimester based on AOG (Age of Gestation)
+            // International standard pregnancy trimester classification:
+            // 1st Trimester = Weeks 1-13 (Months 1-3)
+            // 2nd Trimester = Weeks 14-27 (Months 4-6)
+            // 3rd Trimester = Weeks 28-40+ (Months 7-9+)
             foreach ($assessments as $assess) {
-                $monthNum = (int)$assess['month_num'];
-                $record["month{$monthNum}_aog"]    = $assess['aog_months'];
-                $record["month{$monthNum}_weight"]  = $assess['weight_kg'];
-                $record["month{$monthNum}_status"]  = $assess['weight_gain_status'] ?? $assess['bmi_status'];
+                $aog = (int)($assess['aog_months'] ?? 0);
+                
+                // Determine which trimester this assessment belongs to
+                if ($aog >= 1 && $aog <= 3) {
+                    $trimester = 1;  // 1st Trimester (Months 1-3)
+                } elseif ($aog >= 4 && $aog <= 6) {
+                    $trimester = 2;  // 2nd Trimester (Months 4-6)
+                } elseif ($aog >= 7 && $aog <= 9) {
+                    $trimester = 3;  // 3rd Trimester (Months 7-9+)
+                } else {
+                    // If AOG is missing or invalid, skip this assessment
+                    continue;
+                }
+                
+                // Only use the LATEST assessment per trimester (in case multiple assessments in same trimester)
+                // Store assessment data in the appropriate trimester column
+                $record["month{$trimester}_aog"]    = $assess['aog_months'];
+                $record["month{$trimester}_weight"] = $assess['weight_kg'];
+                $record["month{$trimester}_status"] = $assess['bmi_status'] ?? 'N/A';
             }
             
             $results[] = $record;
