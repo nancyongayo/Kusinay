@@ -62,3 +62,7 @@ composer install
 - `database/` - SQL schema and data exports
 - `public/` - public assets
 - `uploads/` - user-uploaded files
+
+Author
+Nancy Ongayo
+BSIT – Davao Central College
