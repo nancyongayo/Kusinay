@@ -63,6 +63,6 @@ composer install
 - `public/` - public assets
 - `uploads/` - user-uploaded files
 
-Author
-Nancy Ongayo
-BSIT – Davao Central College
+## Author
+- Nancy C. Ongayo
+- BSIT - Davao Central College
