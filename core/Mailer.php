@@ -8,7 +8,7 @@ require_once __DIR__ . '/../config/google.php';
 class Mailer {
     // Gmail SMTP Configuration - Updated approach
     private string $smtpUser = 'nancyongayo24@gmail.com';
-    private string $smtpPass = 'zrmx qfex xwwk svrl'; // Original app password - let's try this first
+    private string $smtpPass = 'pass'; // Original app password - let's try this first
 
     private function buildMailer(): PHPMailer {
         $mail = new PHPMailer(true);
